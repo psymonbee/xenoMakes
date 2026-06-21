@@ -204,6 +204,56 @@ function playerArea(id) {
   return area();
 }
 
+// ----------------------------------------------------------------------------
+//  FOE PATHS  —  make a placed foe WALK along the route drawn in the editor
+// ----------------------------------------------------------------------------
+//  The level designer can draw a route for a foe (a list of cells). Here we make
+//  the foe actually walk it. The route is a list of {x,y} CENTRE positions; the
+//  foe starts on route[0] and heads toward route[1], then route[2], and so on.
+//
+//    mode "pingpong" = walk to the end, then back to the start, forever  (Return ⇄)
+//    mode "loop"     = walk to the end, then STRAIGHT back to the start, repeat (Loop ⟳)
+//    speed = how fast it walks, in pixels per second
+//    range = how close (in CELLS) the player must be before the foe wakes up and
+//            moves; 0 means "always moving". cellSize = how big one "cell" is in px.
+function addPathMover(obj, route, mode, speed, range, cellSize) {
+  if (!route || route.length < 2) return;   // need at least a start + one waypoint
+
+  let target = 1;     // index of the waypoint we're walking toward
+  let dir = 1;        // +1 going forward, -1 coming back (only used by "pingpong")
+  let player = null;  // found lazily, and only when proximity wake-up is switched on
+
+  obj.onUpdate(() => {
+    // Proximity "wake up": if range is set, only move when the player is near.
+    if (range > 0) {
+      if (!player) player = get("player", { recursive: true })[0];
+      if (!player) return;                              // no player yet — wait
+      if (player.pos.dist(obj.pos) > range * cellSize) return;  // too far — stay put
+    }
+
+    const dest = route[target];
+    const step = speed * dt();          // how far we can move this frame
+    const toDest = dest.sub(obj.pos);   // direction + distance to the next waypoint
+
+    if (toDest.len() <= step) {
+      // Close enough — land exactly on the waypoint and choose the next one.
+      obj.pos = dest.clone();
+      if (mode === "loop") {
+        target = (target + 1) % route.length;          // wrap back round to the start
+      } else {
+        target += dir;                                 // bounce back and forth
+        if (target >= route.length) { target = route.length - 2; dir = -1; }
+        if (target < 0)             { target = 1;                 dir = 1;  }
+      }
+    } else {
+      obj.pos = obj.pos.add(toDest.unit().scale(step)); // keep walking toward it
+    }
+
+    // Face the way we're walking (flip the picture when heading right).
+    if (Math.abs(toDest.x) > 0.01) obj.flipX = toDest.x > 0;
+  });
+}
+
 // Add ONE designed sprite to the world with the right behaviour for what it is.
 //
 //  Every designed tile is anchored at its CENTRE and given a rotate(angle)
@@ -211,41 +261,55 @@ function playerArea(id) {
 //  swinging off its corner), and Kaplay rotates the hitbox along with the
 //  picture — so rotated slopes and blocks collide correctly. The editor saves a
 //  tile's TOP-LEFT corner, so we add half its size to get the centre.
-function addDesignTile(id, x, y, angle = 0, flipX = false, flipY = false) {
+function addDesignTile(id, x, y, angle = 0, flipX = false, flipY = false, path = null, zVal = null) {
   const a = window.ASSET_INFO[id] || { w: TILE_SIZE, h: TILE_SIZE };
   const w = a.w, h = a.h;
   const cx = x + w / 2, cy = y + h / 2;          // top-left -> centre
-  const common = [pos(cx, cy), anchor("center"), rotate(angle)];
+  // Draw on the right layer (background behind, player in front…) so the game
+  // matches what you see in the editor. A saved nudge (zVal) overrides the default.
+  const layer = a.layer || "decoration";
+  const zz = (typeof zVal === "number") ? zVal : (window.LAYERS.z[layer] || 0);
+  const common = [pos(cx, cy), anchor("center"), rotate(angle), z(zz)];
   const pic = sprite(id, { flipX, flipY });      // the picture, mirrored if asked
 
+  // Build the object based on what kind of sprite it is. We keep a reference (o)
+  // so that AFTER it's made we can give a foe its walking route (see below).
+  let o;
   if (PLAYER_IDS.has(id)) {
     // The player gets a hitbox that hugs its body (see playerArea) instead of the
     // default full-picture square, so it doesn't float or snag on slopes.
-    const o = add([pic, ...common, playerArea(id), body(), "player"]);
+    o = add([pic, ...common, playerArea(id), body(), "player"]);
     o.baseName = id;                       // the standing picture
     o.jumpName = id.replace("_front", "_jump"); // the mid-air picture
-    return o;
-  }
-  if (COIN_IDS.has(id))   return add([pic, ...common, area(), "coin"]);   // collect these
-  if (FLAG_IDS.has(id))   return add([pic, ...common, area(), "flag"]);   // the goal
-  // An invisible reset zone. It has no picture, so instead of a sprite we use a
-  // see-through rect (opacity 0) for its size. The area() hitbox and "hazard"
-  // tag still work, so touching it sends you back to the start.
-  if (RESET_IDS.has(id)) {
-    return add([rect(w, h), ...common, area(), opacity(0), "hazard"]);
-  }
-  if (HAZARD_IDS.has(id)) return add([pic, ...common, area(), "hazard"]); // touching = respawn
-  if (isSolidId(id)) {
+  } else if (COIN_IDS.has(id)) {
+    o = add([pic, ...common, area(), "coin"]);    // collect these
+  } else if (FLAG_IDS.has(id)) {
+    o = add([pic, ...common, area(), "flag"]);    // the goal
+  } else if (RESET_IDS.has(id)) {
+    // An invisible reset zone. It has no picture, so instead of a sprite we use a
+    // see-through rect (opacity 0) for its size. The area() hitbox and "hazard"
+    // tag still work, so touching it sends you back to the start.
+    o = add([rect(w, h), ...common, area(), opacity(0), "hazard"]);
+  } else if (HAZARD_IDS.has(id)) {
+    o = add([pic, ...common, area(), "hazard"]);  // touching = respawn
+  } else if (isSolidId(id)) {
     // Stand on it. If it's a slope, give it a triangle hitbox that matches the
     // art — mirrored to match a flipped picture; otherwise a normal square
     // hitbox (area()) is exactly right.
     const pts = slopePoints(id);
     const hitbox = pts ? area({ shape: centeredSlopePoly(pts, w, h, flipX, flipY) }) : area();
-    return add([pic, ...common, hitbox, body({ isStatic: true }), "solid"]);
+    o = add([pic, ...common, hitbox, body({ isStatic: true }), "solid"]);
+  } else {
+    // Anything else (bushes, signs, clouds…) is just decoration (its layer, set
+    // above via `common`, already puts it behind the action).
+    o = add([pic, ...common]);
   }
 
-  // Anything else (bushes, signs, clouds…) is just decoration behind the action.
-  return add([pic, ...common, z(-1)]);
+  // If the editor gave this foe a walking route, make it patrol along it.
+  if (path && path.route && path.route.length >= 2) {
+    addPathMover(o, path.route, path.mode, path.speed, path.range, path.cell);
+  }
+  return o;
 }
 
 // Build a whole designed level and report how big it ended up (for the camera).
@@ -266,9 +330,27 @@ function buildDesignLevel(design) {
   for (const t of design) {
     // t.angle is how far the editor rotated this tile; t.flipX/t.flipY mirror it.
     // (All default to 0/false for older saves that never turned or flipped tiles.)
-    if (window.ASSET_INFO[t.id]) {
-      addDesignTile(t.id, t.x - offX, t.y - offY, t.angle || 0, t.flipX || false, t.flipY || false);
+    if (!window.ASSET_INFO[t.id]) continue;
+    const info = window.ASSET_INFO[t.id];
+
+    // If this foe has a walking route, convert each saved waypoint into the same
+    // shifted, centred space the tile itself lives in, and bundle it for the mover.
+    let path = null;
+    if (t.path && t.path.points && t.path.points.length) {
+      const w = info.w, h = info.h;
+      const start = vec2((t.x - offX) + w / 2, (t.y - offY) + h / 2);
+      const pts = t.path.points.map((p) => vec2((p.x - offX) + w / 2, (p.y - offY) + h / 2));
+      path = {
+        route: [start, ...pts],
+        mode: t.path.mode || "pingpong",
+        speed: t.path.speed || 95,
+        range: t.path.range || 0,
+        cell: w,                  // one "cell" = the foe's own width, for proximity
+      };
     }
+
+    addDesignTile(t.id, t.x - offX, t.y - offY, t.angle || 0, t.flipX || false, t.flipY || false, path,
+      (typeof t.z === "number") ? t.z : null);
   }
 
   return { width: (maxX - offX) + TILE_SIZE, height: (maxY - offY) + TILE_SIZE };
@@ -374,7 +456,7 @@ let player = get("player", { recursive: true })[0];
 // If a designed level forgot to place a player, drop a default one in so the
 // game still works instead of crashing.
 if (!player) {
-  player = add([ sprite("player"), pos(TILE_SIZE * 2, 0), area(), body(), anchor("bot"), "player" ]);
+  player = add([ sprite("player"), pos(TILE_SIZE * 2, 0), area(), body(), anchor("bot"), z(window.LAYERS.z.player), "player" ]);
 }
 
 // Remember which picture to show on the ground vs. in the air.
@@ -429,7 +511,7 @@ const scoreLabel = add([
   text("Coins: 0 / " + totalCoins, { size: 36 }),
   pos(24, 24),
   fixed(),
-  z(100),                 // draw on top of everything
+  z(2000),                // draw on top of everything (above all gameplay layers)
   color(255, 255, 255),
   outline(4, rgb(0, 0, 0)),
 ]);
@@ -505,7 +587,7 @@ function showWin() {
     rect(width(), height()),
     pos(0, 0),
     fixed(),
-    z(200),
+    z(2500),
     color(0, 0, 0),
     opacity(0.55),
   ]);
@@ -516,7 +598,7 @@ function showWin() {
     pos(width() / 2, height() / 2 - 40),
     anchor("center"),
     fixed(),
-    z(201),
+    z(2501),
     color(255, 235, 90),
     outline(6, rgb(0, 0, 0)),
   ]);
@@ -526,7 +608,7 @@ function showWin() {
     pos(width() / 2, height() / 2 + 60),
     anchor("center"),
     fixed(),
-    z(201),
+    z(2501),
     color(255, 255, 255),
     outline(4, rgb(0, 0, 0)),
   ]);
@@ -544,7 +626,7 @@ if (DESIGN) {
     pos(width() - 24, 24),
     anchor("topright"),
     fixed(),
-    z(100),
+    z(2000),
     color(255, 255, 255),
     outline(4, rgb(0, 0, 0)),
   ]);

@@ -120,12 +120,39 @@ running, open **http://localhost:8080/editor.html**.
   place just one, drop it and click without moving.)
 - Blocks **snap together**: edge-to-edge side by side, and when you stack one
   on top of another it snaps to the **left, right, or middle** of the block
-  below. If nothing is nearby, it lines up to a tidy grid.
+  below. If nothing is nearby, it lines up to a tidy grid. *Snapping only grabs
+  onto **ground / platforms / blocks*** — backgrounds, props and foes are
+  ignored, so the cursor stops jumping around when the screen gets busy.
 - **Drag a placed tile** to move it. **Right-click** it (or drag it back into
   the drawer) to delete it. The **Clear all** button empties the world.
+- **Layers (what's in front of what):** every sprite is automatically sorted so
+  it sits on the right "deck" — **backgrounds** go behind everything, then
+  decoration, ground, items, foes, and the **player** in front. To fix the odd
+  exception, hover a sprite and tap **`[`** to send it back or **`]`** to bring
+  it forward.
 - Use the **arrow keys** (or drag empty space) to scroll around a big level.
 - Your design **saves automatically** in the browser, so it's still there when
   you come back.
+
+### 🚶 Make a foe move (give it a path)
+Enemies normally sit still. To make one **patrol**, click the purple
+**🚶 Foe Paths** button (just above *Play my level*) to turn path mode **ON**:
+
+1. **Click a foe** to pick it — it gets a yellow outline and a little options
+   panel pops up on the right.
+2. **Click empty cells** to drop waypoints. Straight yellow lines join them up,
+   numbered in the order the foe will walk. **Right-click** takes back the last
+   point.
+3. In the panel choose how it moves:
+   - **Return ⇄** — walks to the end and back, forever. **Loop ⟳** — walks to the
+     end, then straight back to the start, and round again.
+   - **Speed** — Slow / Med / Fast.
+   - **Wake up** — *Off* means it always moves; *3 / 5 / 8 cells* means it only
+     starts moving once the **player gets that close** (a sneaky ambush!).
+4. Press **✓ Done** (or turn Foe Paths **OFF**) to go back to normal building.
+
+Touching a moving foe still sends you back to the start, just like a still one.
+Drag a foe in normal mode and its whole path moves with it.
 
 ### ▶ Play your level
 Press the green **Play my level** button in the editor and the game opens on

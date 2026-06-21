@@ -135,7 +135,7 @@ for (const pack of ALL_PACKS) {
     for (const name of cat.items) {
       const id = fullId(pack, name);
       NAME_TO_ID[pack.id][name] = id;
-      window.ASSET_INFO[id] = { pack: pack.id, name, folder: cat.folder, w, h, root: pack.root };
+      window.ASSET_INFO[id] = { pack: pack.id, name, folder: cat.folder, w, h, root: pack.root, bg: !!cat.isBg, char: !!cat.isChar };
     }
   }
 
@@ -207,3 +207,61 @@ window.packSounds = (packId) => {
   for (const [role, rel] of Object.entries(pack.sounds)) out[role] = `${pack.root}/${rel}`;
   return out;
 };
+
+
+// ----------------------------------------------------------------------------
+//  LAYERS  —  who draws in front of whom (and where future systems live)
+// ----------------------------------------------------------------------------
+//  Every sprite belongs to a LAYER, and each layer has a "z" number. Higher z
+//  draws in FRONT. Sprites are auto-sorted onto the right layer by what they are
+//  (a backdrop goes behind everything, the player in front, etc.), so a level
+//  looks tidy with no fiddling. In the editor you can still nudge one sprite
+//  forward/back with the [ and ] keys — that keeps its z inside the gameplay
+//  range (zMin..zMax) so it can never jump above the reserved system bands.
+//
+//  The HIGH "system" bands (paths / triggers / physics) are reserved for editor
+//  overlays and future feature-types (movement paths now; audio triggers and
+//  physics zones later). They always draw above the artwork, and the per-sprite
+//  nudge can't reach them — so adding those features later won't fight the art.
+window.LAYERS = {
+  // gameplay layers, back -> front
+  order: ["background", "decoration", "terrain", "items", "foes", "player"],
+  z: {
+    background: 0,
+    decoration: 100,
+    terrain: 200,
+    items: 300,
+    foes: 400,
+    player: 500,
+    // reserved system/overlay bands (kept under the editor's drawer UI at z 1000)
+    paths: 700,
+    triggers: 750,
+    physics: 800,
+  },
+  zMin: 0,    // a nudged sprite can't go behind this…
+  zMax: 650,  // …or in front of this (which keeps it under the system bands)
+};
+
+// Work out which layer a sprite belongs to, from what kind of thing it is. We
+// already know its role (player/coin/hazard…) and whether it's a background or a
+// character, so we can sort it without anyone hand-labelling every sprite.
+function computeLayer(id) {
+  const a = window.ASSET_INFO[id];
+  if (!a) return "decoration";
+  if (window.ROLES.player.has(id) || a.char) return "player";
+  if (a.bg) return "background";
+  if (a.folder === "enemies") return "foes";        // slimes, snails, flies…
+  if (window.ROLES.coin.has(id) || window.ROLES.flag.has(id)) return "items";
+  if (window.isSolidId(id)) return "terrain";       // ground / platforms / blocks
+  if (window.ROLES.hazard.has(id) || window.ROLES.reset.has(id)) return "terrain"; // lava, spikes, reset zones
+  return "decoration";                              // bushes, signs, clouds…
+}
+
+// Stamp each sprite with its layer once, now that the role tables + isSolidId all
+// exist. (This runs at the very end of the file on purpose.)
+for (const id of Object.keys(window.ASSET_INFO)) {
+  window.ASSET_INFO[id].layer = computeLayer(id);
+}
+
+// Quick lookup the editor + game use: "which layer is this sprite on?"
+window.layerOf = (id) => (window.ASSET_INFO[id] && window.ASSET_INFO[id].layer) || "decoration";

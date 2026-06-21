@@ -26,6 +26,8 @@
 const DRAWER_W  = 250;   // how wide the left drawer is, in pixels
 const SNAP_DIST = 30;    // how close (px) a snap point must be to "grab" you
 const PAN_SPEED = 18;    // how fast the arrow keys scroll the world
+const DRAG_Z    = 660;   // a tile being dragged/painted floats above the artwork
+                         //  (above gameplay's zMax 650, below the path overlay 700)
 
 
 // ----------------------------------------------------------------------------
@@ -116,6 +118,18 @@ let cam       = vec2(0, 0);        // where the world camera is looking
 // all in, right-click cancels. null when we're not painting. See the bottom.
 let paint     = null;              // { id, w, h, ax, ay, ghosts:[], lastX, lastY }
 
+// FOE PATHS: a separate "mode" for drawing where a foe walks. When pathMode is
+// on, clicking a foe SELECTS it (pathFoe), and clicking empty cells lays down its
+// route. The options panel on the right edits the selected foe's loop style, speed
+// and "wake up" distance. See the "FOE PATHS" section near the bottom of the file.
+let pathMode = false;     // are we in path-drawing mode? (toggled by a drawer button)
+let pathFoe  = null;      // the placed foe we're currently giving a path to, or null
+
+// The three speeds the Speed button cycles through (pixels per second).
+const PATH_SPEEDS = [45, 95, 170];
+// The "wake up when the player is this many cells away" choices (0 = always move).
+const PATH_RANGES = [0, 3, 5, 8];
+
 // ROTATION + FLIP: how the NEXT tile (and whatever you're holding/painting) is
 // turned and mirrored. Q / E turn it; X mirrors left-right; Y mirrors up-down.
 let brushAngle = 0;
@@ -147,10 +161,23 @@ const SAVE_KEY = "coinquest-level";   // where we save in the browser
 // ----------------------------------------------------------------------------
 function saveLevel() {
   // We only need each sprite's name, where it is, how far it's turned, and any flip.
-  const data = placed.map((o) => ({
-    id: o.spriteId, x: o.pos.x, y: o.pos.y,
-    angle: o.spriteAngle || 0, flipX: o.flipX || false, flipY: o.flipY || false,
-  }));
+  const data = placed.map((o) => {
+    const t = {
+      id: o.spriteId, x: o.pos.x, y: o.pos.y,
+      angle: o.spriteAngle || 0, flipX: o.flipX || false, flipY: o.flipY || false,
+    };
+    // Only save the draw order if it's been nudged off this layer's normal value.
+    if (o.baseZ !== window.LAYERS.z[o.layer]) t.z = o.baseZ;
+    // If this is a foe with a walking route, save the route too (waypoints,
+    // loop style, speed, and how close the player must be to wake it up).
+    if (o.path && o.path.points.length) {
+      t.path = {
+        points: o.path.points.map((p) => ({ x: p.x, y: p.y })),
+        mode: o.path.mode, speed: o.path.speed, range: o.path.range,
+      };
+    }
+    return t;
+  });
   localStorage.setItem(SAVE_KEY, JSON.stringify(data));
 }
 
@@ -160,7 +187,19 @@ function loadLevel() {
   try {
     for (const t of JSON.parse(raw)) {
       if (!ASSET[t.id]) continue;         // skip sprites we no longer know
-      placed.push(makeTile(t.id, t.x, t.y, t.angle || 0, t.flipX || false, t.flipY || false));
+      const o = makeTile(t.id, t.x, t.y, t.angle || 0, t.flipX || false, t.flipY || false);
+      // Bring back a nudged draw order, if this sprite had one.
+      if (typeof t.z === "number") { o.baseZ = t.z; o.z = t.z; }
+      // Bring back a saved walking route, if this foe had one.
+      if (t.path && t.path.points && t.path.points.length) {
+        o.path = {
+          points: t.path.points.map((p) => ({ x: p.x, y: p.y })),
+          mode: t.path.mode || "pingpong",
+          speed: t.path.speed || 95,
+          range: t.path.range || 0,
+        };
+      }
+      placed.push(o);
     }
   } catch (e) {
     // If the saved data is broken somehow, just start fresh instead of crashing.
@@ -188,6 +227,14 @@ function makeTile(id, x, y, angle = 0, flipX = false, flipY = false) {
   o.width = a.w;
   o.height = a.h;
   o.drawOpacity = 1;
+  o.path = null;   // a foe's walking route (or null). See "FOE PATHS" near the bottom.
+
+  // LAYER: which "deck" this sprite draws on (background…player). It's chosen
+  // automatically from what the sprite is, so levels look tidy with no fiddling.
+  // baseZ is its normal draw order; [ and ] nudge it within the gameplay range.
+  o.layer = a.layer || "decoration";
+  o.baseZ = window.LAYERS.z[o.layer];
+  o.z = o.baseZ;
 
   o.onDraw(() => {
     // Drawn relative to the tile's top-left, so its CENTRE is at (w/2, h/2).
@@ -245,6 +292,81 @@ add([z(-100)]).onDraw(() => {
 
 
 // ----------------------------------------------------------------------------
+//  FOE PATHS — draw the routes foes will walk (world space, scrolls with camera)
+// ----------------------------------------------------------------------------
+//  Waypoints are stored as TOP-LEFT positions (just like a tile's pos), so a foe
+//  lands exactly on a cell. For DRAWING we want the line to run through tile
+//  CENTRES, so we add half the foe's size to each point.
+
+// Snap a world point to a waypoint TOP-LEFT for this foe, lined up to the grid the
+// same way placed tiles are (so the route runs neatly cell-to-cell).
+function pathSnap(foe, worldPt) {
+  const step = gridStep();
+  const tx = worldPt.x - foe.width / 2;
+  const ty = worldPt.y - foe.height / 2;
+  return vec2(Math.round(tx / step) * step, Math.round(ty / step) * step);
+}
+
+// The centre of a tile sitting with its top-left at (x, y) for this foe.
+function foeCentre(foe, x, y) {
+  return vec2(x + foe.width / 2, y + foe.height / 2);
+}
+
+// A click on one of the options-panel buttons for the selected foe.
+function handlePathButton(key) {
+  const p = pathFoe.path;
+  if (key === "mode")  p.mode = p.mode === "loop" ? "pingpong" : "loop";
+  if (key === "speed") p.speed = PATH_SPEEDS[(Math.max(0, PATH_SPEEDS.indexOf(p.speed)) + 1) % PATH_SPEEDS.length];
+  if (key === "range") p.range = PATH_RANGES[(Math.max(0, PATH_RANGES.indexOf(p.range)) + 1) % PATH_RANGES.length];
+  if (key === "clear") p.points = [];
+  if (key === "done")  pathFoe = null;
+  saveLevel();
+}
+
+add([z(window.LAYERS.z.paths)]).onDraw(() => {
+  if (!pathMode) return;   // only show routes while we're in path mode
+
+  for (const o of placed) {
+    if (!o.path || !o.path.points.length) continue;
+    const selected = o === pathFoe;
+    const lineColor = selected ? rgb(255, 230, 90) : rgb(180, 150, 255);
+    const op = selected ? 0.95 : 0.5;
+
+    // The full route runs: foe's own spot -> waypoint 1 -> waypoint 2 -> ...
+    const pts = [foeCentre(o, o.pos.x, o.pos.y), ...o.path.points.map((p) => foeCentre(o, p.x, p.y))];
+    for (let i = 0; i < pts.length - 1; i++) {
+      drawLine({ p1: pts[i], p2: pts[i + 1], width: selected ? 4 : 3, color: lineColor, opacity: op });
+    }
+    // A numbered dot on each waypoint.
+    for (let i = 0; i < o.path.points.length; i++) {
+      const c = foeCentre(o, o.path.points[i].x, o.path.points[i].y);
+      drawCircle({ pos: c, radius: 11, color: lineColor, opacity: op });
+      drawText({ text: String(i + 1), pos: c, size: 14, anchor: "center", color: rgb(30, 20, 50) });
+    }
+  }
+
+  // Outline the selected foe and draw a live "rubber band" to the snapped cell.
+  if (pathFoe && pathFoe.path) {
+    drawRect({
+      pos: vec2(pathFoe.pos.x, pathFoe.pos.y), width: pathFoe.width, height: pathFoe.height,
+      fill: false, outline: { width: 3, color: rgb(255, 230, 90) },
+    });
+    if (mousePos().x >= DRAWER_W) {
+      const last = pathFoe.path.points.length
+        ? pathFoe.path.points[pathFoe.path.points.length - 1]
+        : { x: pathFoe.pos.x, y: pathFoe.pos.y };
+      const snap = pathSnap(pathFoe, toWorld(mousePos()));
+      drawLine({
+        p1: foeCentre(pathFoe, last.x, last.y),
+        p2: foeCentre(pathFoe, snap.x, snap.y),
+        width: 3, color: rgb(255, 230, 90), opacity: 0.5,
+      });
+    }
+  }
+});
+
+
+// ----------------------------------------------------------------------------
 //  SNAPPING  —  the clever bit
 // ----------------------------------------------------------------------------
 //  Given where the mouse WANTS to drop a tile (its top-left), find the nicest
@@ -260,6 +382,10 @@ function snapPosition(targetX, targetY, w, h, exclude) {
 
   for (const p of placed) {
     if (p === exclude) continue;          // don't snap a tile to itself
+    // Only the stuff you BUILD ON (ground, platforms, blocks) acts as a snap
+    // target. Backgrounds, props, items and foes are ignored, so the cursor
+    // stops jumping to a far-off backdrop corner when the screen gets busy.
+    if (p.layer !== "terrain") continue;
     const px = p.pos.x, py = p.pos.y;
     const [pw, ph] = effSize(p.width, p.height, p.spriteAngle); // turned tiles swap w/h
 
@@ -373,9 +499,14 @@ function playRect() {
   return { x: PAD, y: clearRect().y - CLEAR_H - PAD, w: DRAWER_W - PAD * 2, h: CLEAR_H };
 }
 
-// Where the scrolling list ends (just above the two buttons).
+// The "Foe Paths" toggle, sitting just above "Play".
+function pathsRect() {
+  return { x: PAD, y: playRect().y - CLEAR_H - PAD, w: DRAWER_W - PAD * 2, h: CLEAR_H };
+}
+
+// Where the scrolling list ends (just above the three buttons).
 function listBottom() {
-  return playRect().y - PAD;
+  return pathsRect().y - PAD;
 }
 
 // How tall the full list is, used to limit scrolling.
@@ -385,6 +516,32 @@ function listContentHeight() {
   const ch = cw + 14;
   const rows = Math.ceil(n / COLS);
   return rows * (ch + PAD);
+}
+
+// The FOE-PATH OPTIONS PANEL on the right edge (only shown when a foe is picked).
+// Returns the panel box plus one clickable rect per button, so the SAME function
+// is used to draw the buttons AND to test clicks (they can never drift apart).
+function pathPanelRects() {
+  const w = 210;
+  const x = width() - w - PAD;
+  let y = 80;
+  const bh = 40, gap = 8;
+  const bx = x + PAD, bw = w - PAD * 2;
+  const btn = (key, label) => {
+    const r = { key, label, x: bx, y, w: bw, h: bh };
+    y += bh + gap;
+    return r;
+  };
+  y += 46;   // leave room at the top for the two title lines
+  const buttons = [
+    btn("mode",  ""),     // label is filled in at draw time (depends on the foe)
+    btn("speed", ""),
+    btn("range", ""),
+    btn("clear", "🧹 Clear path"),
+    btn("done",  "✓ Done"),
+  ];
+  const panel = { x, y: 80, w, h: (y - 80) + PAD };
+  return { panel, buttons };
 }
 
 // Simple "is the point inside this rectangle?" check.
@@ -492,6 +649,18 @@ ui.onDraw(() => {
     });
   }
 
+  // The "Foe Paths" toggle (turns path-drawing mode on/off).
+  const fr = pathsRect();
+  const fHot = inRect(mx, my, fr);
+  drawRect({
+    pos: vec2(fr.x, fr.y), width: fr.w, height: fr.h, radius: 6,
+    color: pathMode ? rgb(150, 90, 200) : (fHot ? rgb(90, 102, 130) : rgb(70, 84, 110)),
+  });
+  drawText({
+    text: "🚶 Foe Paths: " + (pathMode ? "ON" : "OFF"),
+    pos: vec2(fr.x + fr.w / 2, fr.y + fr.h / 2), size: 15, anchor: "center", color: rgb(255, 255, 255),
+  });
+
   // The "Play" button (opens the game on whatever you've built).
   const pr = playRect();
   const playHot = inRect(mx, my, pr);
@@ -505,10 +674,47 @@ ui.onDraw(() => {
   drawText({ text: "🗑  Clear all", pos: vec2(cr.x + cr.w / 2, cr.y + cr.h / 2), size: 15, anchor: "center", color: rgb(255, 255, 255) });
 
   // A little help line along the bottom of the screen (right of the drawer).
-  const help = paint
+  const help = pathMode
+    ? (pathFoe
+        ? "PATH MODE: click cells to lay this foe's route  •  right-click removes the last point  •  use the panel to set loop/speed/wake-up  •  ✓ Done when finished"
+        : "PATH MODE: click a foe to start drawing where it walks  •  turn Foe Paths OFF to build normally again")
+    : paint
     ? "PAINTING: move the mouse to size the rectangle  •  Q / E rotate  •  X / Y flip  •  left-click to fill it  •  right-click to cancel"
-    : "Drag a sprite out to paint  •  Q / E rotate  •  X / Y flip (held tile, or the one under the mouse)  •  drag placed tiles to move  •  right-click to delete  •  arrows scroll";
+    : "Drag a sprite out to paint  •  Q / E rotate  •  X / Y flip  •  [ / ] send back / bring forward  •  drag placed tiles to move  •  right-click to delete  •  arrows scroll";
   drawText({ text: help, pos: vec2(DRAWER_W + 14, height() - 22), size: 13, color: rgb(255, 255, 255), opacity: 0.75 });
+
+  // The FOE-PATH OPTIONS PANEL (right edge) — only when a foe is selected.
+  if (pathMode && pathFoe && pathFoe.path) {
+    const { panel, buttons } = pathPanelRects();
+    const p = pathFoe.path;
+    drawRect({ pos: vec2(panel.x, panel.y), width: panel.w, height: panel.h, radius: 8, color: rgb(40, 30, 58), opacity: 0.96 });
+    drawText({ text: "Foe path", pos: vec2(panel.x + PAD, panel.y + 10), size: 16, color: rgb(255, 255, 255) });
+    drawText({
+      text: p.points.length + " waypoint" + (p.points.length === 1 ? "" : "s"),
+      pos: vec2(panel.x + PAD, panel.y + 34), size: 12, color: rgb(210, 200, 230),
+    });
+
+    // Fill in the labels that depend on the foe's current settings.
+    const speedName = ["Slow", "Med", "Fast"][PATH_SPEEDS.indexOf(p.speed)] || "Med";
+    const labelFor = {
+      mode:  p.mode === "loop" ? "Loop  ⟳" : "Return  ⇄",
+      speed: "Speed: " + speedName,
+      range: "Wake up: " + (p.range === 0 ? "Off" : p.range + " cells"),
+    };
+    for (const b of buttons) {
+      const hot = inRect(mx, my, b);
+      const danger = b.key === "clear";
+      drawRect({
+        pos: vec2(b.x, b.y), width: b.w, height: b.h, radius: 6,
+        color: danger ? (hot ? rgb(200, 70, 70) : rgb(150, 55, 55))
+                      : (hot ? rgb(110, 84, 150) : rgb(80, 64, 110)),
+      });
+      drawText({
+        text: labelFor[b.key] || b.label,
+        pos: vec2(b.x + b.w / 2, b.y + b.h / 2), size: 15, anchor: "center", color: rgb(255, 255, 255),
+      });
+    }
+  }
 
   // A little badge (top-right) showing the current rotation + flip, so you always
   // know how the next tile will be placed.
@@ -546,17 +752,17 @@ function startNewDrag(id) {
   // place many the same way.
   const o = makeTile(id, 0, 0, brushAngle, brushFlipX, brushFlipY);
   o.drawOpacity = 0.6;
-  o.z = 500;                          // float above everything while dragging
+  o.z = DRAG_Z;                       // float above the artwork while dragging
   drag = { mode: "new", obj: o, w: ASSET[id].w, h: ASSET[id].h };
 }
 
 function startMoveDrag(o) {
   o.drawOpacity = 0.6;
-  o.z = 500;
+  o.z = DRAG_Z;
   brushAngle = o.spriteAngle;         // so Q/E/X/Y keep adjusting from its current state
   brushFlipX = o.flipX;
   brushFlipY = o.flipY;
-  drag = { mode: "move", obj: o, w: ASSET[o.spriteId].w, h: ASSET[o.spriteId].h };
+  drag = { mode: "move", obj: o, w: ASSET[o.spriteId].w, h: ASSET[o.spriteId].h, startPos: o.pos.clone() };
 }
 
 function removeFromPlaced(o) {
@@ -605,7 +811,7 @@ function rebuildPaintGhosts(cx, cy) {
       // A faded, correctly-rotated/flipped preview tile (drawOpacity < 1 = "ghost").
       const g = makeTile(paint.id, x, y, paint.angle, paint.flipX, paint.flipY);
       g.drawOpacity = isReset ? 0.6 : 0.45;
-      g.z = 400;
+      g.z = DRAG_Z;
       paint.ghosts.push(g);
     }
   }
@@ -639,6 +845,45 @@ function cancelPaint() {
 // ----------------------------------------------------------------------------
 onMousePress("left", () => {
   const m = mousePos();
+
+  // --- The "Foe Paths" toggle works no matter what mode we're in. ---
+  if (inRect(m.x, m.y, pathsRect())) {
+    if (paint) cancelPaint();
+    pathMode = !pathMode;
+    pathFoe = null;
+    return;
+  }
+
+  // --- PATH MODE: clicks lay out where a foe walks (not normal editing). ---
+  if (pathMode) {
+    // The options panel buttons (only there when a foe is selected).
+    if (pathFoe && pathFoe.path) {
+      for (const b of pathPanelRects().buttons) {
+        if (inRect(m.x, m.y, b)) { handlePathButton(b.key); return; }
+      }
+    }
+    // In the drawer area, only the Play button still does something.
+    if (m.x < DRAWER_W) {
+      if (inRect(m.x, m.y, playRect())) { saveLevel(); window.location.href = "./?play=1"; return; }
+      return;
+    }
+    // Out in the world: click a foe to select it, or click a cell to add a waypoint.
+    const wpt = toWorld(m);
+    const hit = pickPlaced(wpt);
+    if (hit) {
+      if (hit !== pathFoe) {
+        pathFoe = hit;
+        if (!pathFoe.path) pathFoe.path = { points: [], mode: "pingpong", speed: 95, range: 0 };
+      }
+      return;                          // (clicking the same foe again does nothing)
+    }
+    if (pathFoe) {
+      const snap = pathSnap(pathFoe, wpt);
+      pathFoe.path.points.push({ x: snap.x, y: snap.y });
+      saveLevel();
+    }
+    return;
+  }
 
   // --- If we're painting, a click finishes it (or cancels, on the drawer). ---
   if (paint) {
@@ -701,6 +946,17 @@ onMousePress("right", () => {
   // While painting, right-click throws the selection away.
   if (paint) { cancelPaint(); return; }
 
+  // In path mode, right-click takes back the last waypoint (or deselects the foe
+  // if there are none left). We DON'T delete tiles here, to avoid accidents.
+  if (pathMode) {
+    if (pathFoe && pathFoe.path) {
+      if (pathFoe.path.points.length) pathFoe.path.points.pop();
+      else pathFoe = null;
+      saveLevel();
+    }
+    return;
+  }
+
   const m = mousePos();
   if (m.x < DRAWER_W) return;           // ignore right-clicks on the drawer
   const hit = pickPlaced(toWorld(m));
@@ -734,7 +990,14 @@ onMouseRelease("left", () => {
   } else {
     // Finished MOVING an existing tile — drop it where it snapped.
     drag.obj.drawOpacity = 1;
-    drag.obj.z = 10;
+    drag.obj.z = drag.obj.baseZ;       // back to its normal layer order
+    // If this foe has a walking route, slide the whole route along with it so the
+    // path keeps the same shape relative to the foe.
+    if (drag.obj.path && drag.startPos) {
+      const dx = drag.obj.pos.x - drag.startPos.x;
+      const dy = drag.obj.pos.y - drag.startPos.y;
+      for (const pt of drag.obj.path.points) { pt.x += dx; pt.y += dy; }
+    }
   }
   saveLevel();
   drag = null;
@@ -762,6 +1025,7 @@ onScroll((delta) => {
 //    • over empty space           -> set the angle for the NEXT tile you place
 //  dir is +1 for clockwise (E) or -1 for counter-clockwise (Q).
 function rotateBrush(dir) {
+  if (pathMode) return;   // in path mode, keys don't rotate tiles
   // Hovering a placed tile (and not holding/painting one)? Turn just that tile.
   if (!drag && !paint && mousePos().x >= DRAWER_W) {
     const hit = pickPlaced(toWorld(mousePos()));
@@ -795,6 +1059,7 @@ onKeyPress("e", () => rotateBrush(1));
 //  it works on the held tile, the paint brush, the tile under the mouse, or sets
 //  the default for the next tile. axis is "x" (left-right) or "y" (up-down).
 function flipBrush(axis) {
+  if (pathMode) return;   // in path mode, keys don't flip tiles
   const toggle = (o) => { if (axis === "x") o.flipX = !o.flipX; else o.flipY = !o.flipY; };
 
   // Hovering a placed tile (and not holding/painting one)? Flip just that tile.
@@ -819,6 +1084,25 @@ function flipBrush(axis) {
 }
 onKeyPress("x", () => flipBrush("x"));
 onKeyPress("y", () => flipBrush("y"));
+
+
+// ----------------------------------------------------------------------------
+//  LAYER NUDGE  —  press [ (send back) or ] (bring forward) over a tile
+// ----------------------------------------------------------------------------
+//  Hover a placed sprite and tap [ or ] to slide it behind or in front of the
+//  others. It stays inside the gameplay range (zMin..zMax), so you can never
+//  accidentally push it above the reserved system layers (paths, etc.).
+function nudgeZ(dir) {
+  if (pathMode || drag || paint) return;        // only when plainly hovering
+  if (mousePos().x < DRAWER_W) return;          // ignore the drawer
+  const hit = pickPlaced(toWorld(mousePos()));
+  if (!hit) return;
+  hit.baseZ = clamp(hit.baseZ + dir * 20, window.LAYERS.zMin, window.LAYERS.zMax);
+  hit.z = hit.baseZ;
+  saveLevel();
+}
+onKeyPress("]", () => nudgeZ(1));   // bring forward
+onKeyPress("[", () => nudgeZ(-1));  // send back
 
 
 // ----------------------------------------------------------------------------
