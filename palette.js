@@ -1,20 +1,52 @@
 // ============================================================================
-//  PALETTE  —  the shared list of sprites the editor AND the game both use
+//  PALETTE  —  the shared sprite REGISTRY the editor AND the game both use
 // ============================================================================
-//  Both editor.js and main.js load this file FIRST. Keeping the list in one
-//  place means the level designer and the game can never disagree about which
-//  sprites exist or where they live on disk.
+//  Both editor.js and main.js load this file. Keeping the list in one place
+//  means the level designer and the game can never disagree about which sprites
+//  exist, where they live on disk, how big they are, or how they behave.
 //
-//  Want a new sprite available to drag in the editor (and playable in the
-//  game)? Add its name to the right category below. Look names up in ASSETS.md.
+//  ----------------------------------------------------------------------------
+//  PACKS  —  the big idea that lets us add lots of art packs over time
+//  ----------------------------------------------------------------------------
+//  A "pack" is one set of art (e.g. Kenney's classic platformer pack, or the
+//  newer one). Each pack is described by a little MANIFEST: its folder, the size
+//  of its tiles, the sprites it has (grouped into categories), and what those
+//  sprites DO (coin? hazard? solid ground? the player?).
+//
+//  • The CLASSIC pack is written inline just below (BASE_PACK).
+//  • Every OTHER pack lives in its own file, e.g.
+//      assets/packs/new-platformer/pack.js
+//    which pushes itself onto window.EXTRA_PACKS. Those files must be loaded
+//    BEFORE this one (see index.html / editor.html).
+//
+//  To add a brand-new pack later: drop its folder in, add a pack.js manifest,
+//  load it in the two HTML files. No game or editor code needs to change.
+//
+//  ----------------------------------------------------------------------------
+//  IDs  —  how a sprite is named everywhere (saves, editor, game)
+//  ----------------------------------------------------------------------------
+//  The classic pack keeps PLAIN names ("grassMid", "coinGold") so old saved
+//  levels keep working. Every other pack PREFIXES its names with its id and a
+//  colon ("newplat:coin_gold"). That prefix is what stops two different packs
+//  from clashing when they both have a sprite called, say, "block_blue".
 // ============================================================================
 
-window.PALETTE = {
-  // Each category is one tab in the editor's drawer.
+
+// ----------------------------------------------------------------------------
+//  THE CLASSIC PACK  —  the original Kenney art (lives flat under assets/…)
+// ----------------------------------------------------------------------------
+//  prefix:"" means its sprites keep their plain names with no "id:" in front.
+const BASE_PACK = {
+  id: "base",
+  label: "Classic",
+  prefix: "",                              // no prefix → plain names like "grassMid"
+  root: "assets",                          // files live at assets/<folder>/<name>.png
+  sizes: { tileW: 70, tileH: 70, charW: 66, charH: 92 },
+
+  // Each category becomes a tab in the editor's drawer.
   categories: [
     {
-      name: "Tiles",
-      folder: "tiles",
+      name: "Tiles", folder: "tiles",
       items: [
         "grassMid", "grassLeft", "grassRight", "grassCenter",
         "dirtMid", "dirtCenter",
@@ -25,12 +57,11 @@ window.PALETTE = {
         "box", "boxCoin", "boxItem", "brickWall", "bridge",
         "ladder_mid", "door_closedTop", "door_closedMid", "fence", "sign",
         "liquidWater", "liquidWaterTop_mid", "liquidLava",
-        "resetZone",   // INVISIBLE reset zone — has no picture (see RESET_IDS below)
+        "resetZone",   // INVISIBLE reset zone — has no picture (see roles.reset)
       ],
     },
     {
-      name: "Items",
-      folder: "items",
+      name: "Items", folder: "items",
       items: [
         "coinGold", "coinSilver", "coinBronze",
         "gemBlue", "gemGreen", "gemRed", "gemYellow", "star",
@@ -40,36 +71,139 @@ window.PALETTE = {
       ],
     },
     {
-      name: "Foes",
-      folder: "enemies",
+      name: "Foes", folder: "enemies",
       items: ["slimeWalk1", "snailWalk1", "flyFly1", "fishSwim1", "blockerBody"],
     },
     {
-      name: "Players",
-      folder: "characters",
-      isChar: true,   // characters are 66x92, not 70x70 like everything else
+      name: "Players", folder: "characters", isChar: true,
       items: ["p1_front", "p2_front", "p3_front"],
     },
   ],
+
+  favourites: [],   // the classic pack is small enough to not need a shortlist
+
+  // What each sprite DOES. (Edge-piece families share a name prefix, so for
+  // "solid" we can match by prefix instead of listing every piece.)
+  roles: {
+    player: ["p1_front", "p2_front", "p3_front"],
+    coin: ["coinGold", "coinSilver", "coinBronze", "gemBlue", "gemGreen", "gemRed", "gemYellow", "star"],
+    flag: ["flagGreen"],
+    hazard: ["spikes", "liquidLava", "liquidLavaTop_mid", "slimeWalk1", "snailWalk1", "flyFly1", "fishSwim1", "blockerBody"],
+    reset: ["resetZone"],            // invisible "send player back to start" zones
+    solidPrefixes: ["grass", "dirt", "sand", "snow", "stone", "castle"],
+    solid: ["box", "boxCoin", "boxItem", "brickWall", "bridge"],
+  },
+
+  sounds: {},   // the classic pack ships no sounds (the new pack does)
 };
 
-// Build a quick lookup table:  ASSET_INFO[name] = { folder, w, h }
+
+// ----------------------------------------------------------------------------
+//  BUILD THE REGISTRY  —  turn every pack manifest into fast lookup tables
+// ----------------------------------------------------------------------------
+//  After this runs we have, for the WHOLE game:
+//    window.ASSET_INFO[id]  = { pack, name, folder, w, h, root }
+//    window.spritePath(id)  = "assets/.../name.png"
+//    window.ROLES           = { player, coin, flag, hazard, reset, solid } sets
+//    window.RESET_IDS       = the reset set (kept under its old name)
+//    window.isSolidId(id)   = can you stand on it?
+//    window.PACKS           = the manifests (the editor's pack picker reads this)
+//    window.PALETTE         = { categories } for the FIRST pack (back-compat)
+const ALL_PACKS = [BASE_PACK, ...(window.EXTRA_PACKS || [])];
+
 window.ASSET_INFO = {};
-for (const cat of window.PALETTE.categories) {
-  for (const name of cat.items) {
-    window.ASSET_INFO[name] = {
-      folder: cat.folder,
-      w: cat.isChar ? 66 : 70,
-      h: cat.isChar ? 92 : 70,
-    };
-  }
+window.ROLES = { player: new Set(), coin: new Set(), flag: new Set(), hazard: new Set(), reset: new Set(), solid: new Set() };
+
+// Per-pack list of "this name-prefix means solid ground" rules, keyed by pack id.
+const SOLID_PREFIXES = {};   // { packId: ["grass","dirt",…] }
+const NAME_TO_ID = {};       // packId -> { bareName -> full id }, for building roles
+
+// fullId("base","grassMid") -> "grassMid"   ;  fullId("newplat","coin") -> "newplat:coin"
+function fullId(pack, name) {
+  return pack.prefix ? pack.prefix + ":" + name : name;
 }
 
-// Turn a sprite name into its file path, e.g. "grassMid" -> "assets/tiles/grassMid.png"
-window.spritePath = (name) => `assets/${window.ASSET_INFO[name].folder}/${name}.png`;
+for (const pack of ALL_PACKS) {
+  SOLID_PREFIXES[pack.id] = pack.roles.solidPrefixes || [];
+  NAME_TO_ID[pack.id] = {};
 
-// RESET zones: special blocks that send the player back to the start when touched.
-// They have NO picture file — in the GAME they're invisible, and in the level
-// designer they show as a RED OUTLINE so you can see where you put them. This is
-// the ONE place that list lives, so the editor and the game can never disagree.
-window.RESET_IDS = new Set(["resetZone"]);
+  for (const cat of pack.categories) {
+    // Pick the right size for this category: characters, backgrounds, or tiles.
+    const w = cat.isChar ? pack.sizes.charW : (cat.isBg ? 256 : pack.sizes.tileW);
+    const h = cat.isChar ? pack.sizes.charH : (cat.isBg ? 256 : pack.sizes.tileH);
+
+    for (const name of cat.items) {
+      const id = fullId(pack, name);
+      NAME_TO_ID[pack.id][name] = id;
+      window.ASSET_INFO[id] = { pack: pack.id, name, folder: cat.folder, w, h, root: pack.root };
+    }
+  }
+
+  // Translate this pack's role lists (bare names) into full ids and collect them.
+  const R = pack.roles;
+  const collect = (bareList, set) => {
+    for (const bare of bareList || []) {
+      const id = NAME_TO_ID[pack.id][bare] || fullId(pack, bare);
+      set.add(id);
+    }
+  };
+  collect(R.player, window.ROLES.player);
+  collect(R.coin, window.ROLES.coin);
+  collect(R.flag, window.ROLES.flag);
+  collect(R.hazard, window.ROLES.hazard);
+  collect(R.reset, window.ROLES.reset);
+  collect(R.solid, window.ROLES.solid);
+}
+
+// Keep the old name some code still uses.
+window.RESET_IDS = window.ROLES.reset;
+
+// Expose the manifests (with full-id versions of items/favourites) for the editor.
+window.PACKS = ALL_PACKS.map((pack) => ({
+  id: pack.id,
+  label: pack.label,
+  sizes: pack.sizes,
+  categories: pack.categories.map((cat) => ({
+    name: cat.name,
+    folder: cat.folder,
+    isChar: !!cat.isChar,
+    isBg: !!cat.isBg,
+    items: cat.items.map((name) => fullId(pack, name)),
+  })),
+  favourites: (pack.favourites || []).map((name) => fullId(pack, name)),
+}));
+
+// Back-compat: some older code reads window.PALETTE.categories (the classic pack).
+window.PALETTE = { categories: window.PACKS[0].categories };
+
+
+// ----------------------------------------------------------------------------
+//  HELPERS  —  the handful of functions the editor and game call
+// ----------------------------------------------------------------------------
+// Turn an id into its picture path, e.g. "grassMid" -> "assets/tiles/grassMid.png"
+// or "newplat:coin_gold" -> "assets/packs/new-platformer/tiles/coin_gold.png".
+window.spritePath = (id) => {
+  const a = window.ASSET_INFO[id];
+  return `${a.root}/${a.folder}/${a.name}.png`;
+};
+
+// "Can the player stand on this?"  True for explicit solids and for any sprite
+// whose name starts with one of its pack's solid prefixes — UNLESS it's a hazard
+// (e.g. block_spikes looks like a block but should hurt you, not hold you up).
+window.isSolidId = (id) => {
+  if (window.ROLES.hazard.has(id)) return false;
+  if (window.ROLES.solid.has(id)) return true;
+  const a = window.ASSET_INFO[id];
+  if (!a) return false;
+  return (SOLID_PREFIXES[a.pack] || []).some((p) => a.name.startsWith(p));
+};
+
+// Look up the sound effects for a pack (so the game can play "jump", "coin", …).
+// Returns { role: "assets/.../sfx.ogg" } with full paths, or {} if the pack is silent.
+window.packSounds = (packId) => {
+  const pack = ALL_PACKS.find((p) => p.id === packId);
+  if (!pack || !pack.sounds) return {};
+  const out = {};
+  for (const [role, rel] of Object.entries(pack.sounds)) out[role] = `${pack.root}/${rel}`;
+  return out;
+};

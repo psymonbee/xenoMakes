@@ -21,18 +21,40 @@
 // ----------------------------------------------------------------------------
 //  SETTINGS  —  the knobs you might want to turn
 // ----------------------------------------------------------------------------
-const TILE_SIZE = 70;    // the grid step, in pixels (Kenney art is 70x70)
+// (The grid step is no longer a fixed number — it follows the selected pack's
+//  tile size via gridStep(), so 70px Classic and 64px New tiles each line up.)
 const DRAWER_W  = 250;   // how wide the left drawer is, in pixels
 const SNAP_DIST = 30;    // how close (px) a snap point must be to "grab" you
 const PAN_SPEED = 18;    // how fast the arrow keys scroll the world
 
 
 // ----------------------------------------------------------------------------
-//  THE PALETTE  —  which sprites show up in the drawer, by category
+//  THE PALETTE  —  which sprites show up in the drawer, by pack & category
 // ----------------------------------------------------------------------------
-//  The actual list lives in palette.js (shared with the game) so the two can
-//  never disagree. To add/remove sprites, edit palette.js.
-const CATEGORIES = window.PALETTE.categories;
+//  The actual lists live in palette.js (shared with the game) so the two can
+//  never disagree. There can be several art PACKS (Classic, New Platformer, …);
+//  a row of buttons at the top of the drawer picks which one you're building
+//  with. To add/remove sprites or packs, edit palette.js (and the pack files).
+const PACKS = window.PACKS;
+let activePack = 0;     // which art pack is selected
+
+// The categories shown for the current pack. If the pack has a "favourites"
+// shortlist, we slip a "★ Faves" tab in front so the best bits are one click
+// away instead of buried in a 300-sprite list.
+function cats() {
+  const p = PACKS[activePack];
+  const base = p.categories;
+  if (p.favourites && p.favourites.length) {
+    return [{ name: "★ Faves", folder: "", items: p.favourites }, ...base];
+  }
+  return base;
+}
+
+// The grid step (and snap fallback) follows the current pack's tile size, so
+// 64px New-Platformer tiles line up on a 64px grid and 70px Classic tiles on 70.
+function gridStep() {
+  return PACKS[activePack].sizes.tileW;
+}
 
 // RESET zones are INVISIBLE in the game (they just send the player back to the
 // start when touched). Because you can't see them while playing, here in the
@@ -70,10 +92,12 @@ document.addEventListener("contextmenu", (e) => e.preventDefault());
 // ----------------------------------------------------------------------------
 //  ASSET[name] = { w, h, folder }  — comes from the shared palette.js.
 const ASSET = window.ASSET_INFO;
-for (const cat of CATEGORIES) {
-  for (const name of cat.items) {
-    if (RESET_IDS.has(name)) continue;   // reset zones have no picture to load
-    loadSprite(name, window.spritePath(name));
+for (const pack of PACKS) {
+  for (const cat of pack.categories) {
+    for (const id of cat.items) {
+      if (RESET_IDS.has(id)) continue;   // reset zones have no picture to load
+      loadSprite(id, window.spritePath(id));
+    }
   }
 }
 
@@ -167,16 +191,17 @@ add([z(-100)]).onDraw(() => {
   const topLeft     = toWorld(vec2(0, 0));
   const bottomRight = toWorld(vec2(width(), height()));
 
-  const startX = Math.floor(topLeft.x / TILE_SIZE) * TILE_SIZE;
-  const startY = Math.floor(topLeft.y / TILE_SIZE) * TILE_SIZE;
+  const step = gridStep();   // grid spacing for the current pack (70 or 64…)
+  const startX = Math.floor(topLeft.x / step) * step;
+  const startY = Math.floor(topLeft.y / step) * step;
 
-  for (let x = startX; x < bottomRight.x; x += TILE_SIZE) {
+  for (let x = startX; x < bottomRight.x; x += step) {
     drawLine({
       p1: vec2(x, topLeft.y), p2: vec2(x, bottomRight.y),
       width: 1, color: rgb(255, 255, 255), opacity: 0.10,
     });
   }
-  for (let y = startY; y < bottomRight.y; y += TILE_SIZE) {
+  for (let y = startY; y < bottomRight.y; y += step) {
     drawLine({
       p1: vec2(topLeft.x, y), p2: vec2(bottomRight.x, y),
       width: 1, color: rgb(255, 255, 255), opacity: 0.10,
@@ -236,10 +261,11 @@ function snapPosition(targetX, targetY, w, h, exclude) {
 
   if (best) return vec2(best[0], best[1]);
 
-  // Nothing nearby — snap to the plain grid instead.
+  // Nothing nearby — snap to the plain grid instead (sized to the current pack).
+  const step = gridStep();
   return vec2(
-    Math.round(targetX / TILE_SIZE) * TILE_SIZE,
-    Math.round(targetY / TILE_SIZE) * TILE_SIZE,
+    Math.round(targetX / step) * step,
+    Math.round(targetY / step) * step,
   );
 }
 
@@ -248,20 +274,35 @@ function snapPosition(targetX, targetY, w, h, exclude) {
 //  DRAWER LAYOUT HELPERS  —  one source of truth for WHERE things are drawn,
 //  reused for both drawing AND clicking (so they can never disagree).
 // ----------------------------------------------------------------------------
-const TITLE_H = 44;    // height of the title bar at the very top
-const TAB_H   = 30;    // height of a category tab
-const CLEAR_H = 40;    // height of the "Clear all" button at the bottom
-const COLS    = 3;     // thumbnails per row
-const PAD     = 8;     // gap between things
+const TITLE_H   = 44;   // height of the title bar at the very top
+const PACK_H    = 28;   // height of the pack-picker row (just under the title)
+const TAB_H     = 30;   // height of a category tab
+const CLEAR_H   = 40;   // height of the "Clear all" button at the bottom
+const COLS      = 3;    // thumbnails per row
+const PAD        = 8;   // gap between things
 
-// The category tabs (returns a screen-space rectangle for each).
+// The pack-picker buttons (one per art pack), in a row under the title.
+function packRects() {
+  const out = [];
+  const bw = (DRAWER_W - PAD * (PACKS.length + 1)) / PACKS.length;
+  let x = PAD;
+  const y = TITLE_H + PAD;
+  for (let i = 0; i < PACKS.length; i++) {
+    out.push({ i, x, y, w: bw, h: PACK_H, label: PACKS[i].label });
+    x += bw + PAD;
+  }
+  return out;
+}
+
+// The category tabs for the CURRENT pack (returns a screen-space rect for each).
 function tabRects() {
   const out = [];
-  let x = PAD, y = TITLE_H + PAD;
+  const list = cats();
+  let x = PAD, y = TITLE_H + PAD + PACK_H + PAD;   // below the pack-picker row
   const tw = (DRAWER_W - PAD * (COLS + 1)) / COLS; // same width as 3 columns
-  for (let i = 0; i < CATEGORIES.length; i++) {
+  for (let i = 0; i < list.length; i++) {
     if (x + tw > DRAWER_W) { x = PAD; y += TAB_H + PAD; } // wrap to next row
-    out.push({ i, x, y, w: tw, h: TAB_H, label: CATEGORIES[i].name });
+    out.push({ i, x, y, w: tw, h: TAB_H, label: list[i].name });
     x += tw + PAD;
   }
   return out;
@@ -278,7 +319,7 @@ function listTop() {
 // (These already include the scroll offset, so some may be above/below view.)
 function cellRects() {
   const out = [];
-  const items = CATEGORIES[activeCat].items;
+  const items = cats()[activeCat].items;
   const cw = (DRAWER_W - PAD * (COLS + 1)) / COLS;
   const ch = cw + 14;                 // square thumb + a little label space
   const top = listTop();
@@ -309,7 +350,7 @@ function listBottom() {
 
 // How tall the full list is, used to limit scrolling.
 function listContentHeight() {
-  const n = CATEGORIES[activeCat].items.length;
+  const n = cats()[activeCat].items.length;
   const cw = (DRAWER_W - PAD * (COLS + 1)) / COLS;
   const ch = cw + 14;
   const rows = Math.ceil(n / COLS);
@@ -328,6 +369,22 @@ function inRect(px, py, r) {
 // ----------------------------------------------------------------------------
 const ui = add([fixed(), z(1000)]);
 
+// Draw the row of pack-picker buttons (the selected pack is highlighted).
+function paintPackRow(mx, my) {
+  for (const p of packRects()) {
+    const active = p.i === activePack;
+    const hot = inRect(mx, my, p);
+    drawRect({
+      pos: vec2(p.x, p.y), width: p.w, height: p.h, radius: 5,
+      color: active ? rgb(240, 170, 70) : (hot ? rgb(70, 84, 110) : rgb(54, 66, 90)),
+    });
+    drawText({
+      text: p.label, pos: vec2(p.x + p.w / 2, p.y + p.h / 2), size: 12,
+      anchor: "center", color: rgb(255, 255, 255), width: p.w - 6,
+    });
+  }
+}
+
 ui.onDraw(() => {
   const mx = mousePos().x, my = mousePos().y;
   const listEnd = listBottom();
@@ -338,6 +395,9 @@ ui.onDraw(() => {
   // Title bar.
   drawRect({ pos: vec2(0, 0), width: DRAWER_W, height: TITLE_H, color: rgb(44, 56, 78) });
   drawText({ text: "🧱 Level Designer", pos: vec2(PAD, 13), size: 18, color: rgb(255, 255, 255) });
+
+  // Pack-picker row (Classic / New Platformer / …).
+  paintPackRow(mx, my);
 
   // Category tabs.
   for (const t of tabRects()) {
@@ -385,7 +445,8 @@ ui.onDraw(() => {
 
   // Cover the strip just under the tabs so scrolled thumbnails don't peek out.
   drawRect({ pos: vec2(0, TITLE_H), width: DRAWER_W, height: listTop() - TITLE_H, color: rgb(28, 36, 52) });
-  // Redraw the tabs on top of that cover.
+  // Redraw the pack row + tabs on top of that cover.
+  paintPackRow(mx, my);
   for (const t of tabRects()) {
     const active = t.i === activeCat;
     const hot = inRect(mx, my, t);
@@ -536,6 +597,10 @@ onMousePress("left", () => {
 
   // --- Did we click inside the drawer? ---
   if (m.x < DRAWER_W) {
+    // A pack-picker button? Switch packs and jump back to its first tab.
+    for (const p of packRects()) {
+      if (inRect(m.x, m.y, p)) { activePack = p.i; activeCat = 0; scrollY = 0; return; }
+    }
     // A tab?
     for (const t of tabRects()) {
       if (inRect(m.x, m.y, t)) { activeCat = t.i; scrollY = 0; return; }

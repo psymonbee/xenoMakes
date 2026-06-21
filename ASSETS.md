@@ -9,6 +9,9 @@ flag"* and we look the name up here.
 - **All sprites are 70×70 pixels**, except the **characters** (~66×92) and the **backgrounds** (256×256, tileable).
 - Paths below are relative to the project root, e.g. `assets/items/coinGold.png`.
 
+> **This page describes the CLASSIC pack** (the original art under `assets/`).
+> There's now a **second pack** too — see **[New Platformer pack](#-new-platformer-pack--assetspacksnew-platformer)** at the bottom.
+
 ---
 
 ## characters — `assets/characters/`
@@ -187,3 +190,27 @@ Large 256×256 tileable background images.
 |------|-------------|
 | `bg.png` | Plain light-blue sky background (tiles seamlessly). |
 | `bg_castle.png` | Dark castle-interior background (tiles seamlessly). |
+
+---
+
+## 🆕 New Platformer pack — `assets/packs/new-platformer/`
+A second, newer Kenney art pack (**CC0**), redrawn in a rounder modern style.
+It's a near-complete superset of the Classic pack **plus sound effects**.
+
+- **Sizes:** tiles are **64×64**, characters **128×128**, backgrounds 256×256.
+  (Different from the Classic pack's 70×70 — that's why each pack carries its own
+  size, and the editor grid resizes to match.)
+- **Naming:** consistent `snake_case` with family prefixes, e.g.
+  `terrain_grass_block_top`, `block_coin`, `coin_gold`, `character_beige_front`,
+  `slime_normal_rest`. In code these get a pack prefix → `newplat:coin_gold`.
+- **The full list isn't typed out here** — there are 300+ tiles. The categorised
+  lists live in the generated manifest **`assets/packs/new-platformer/pack.js`**,
+  and you can regenerate it with `node scripts/gen-pack-new-platformer.mjs`.
+
+| Folder | What's in it (roughly) |
+|--------|------------------------|
+| `tiles/` | Terrain in 7 materials (grass, dirt, sand, snow, stone, purple, +clouds/ramps), `block_*`/`brick_*` blocks, coins/gems/keys/flags/locks, hazards (`spikes`, `saw`, `lava`, `fireball`), props (doors, ladders, signs, levers, switches, torches, bushes…), and `hud_*` icons. |
+| `characters/` | 5 colours (beige, green, pink, purple, yellow), each with front / jump / walk_a/b / idle / duck / hit / climb poses. The drawer shows each colour's **front** pose; the game loads the matching **jump** pose itself. |
+| `enemies/` | Slimes (normal/fire/spike/block), snail, fly, bee, ladybug, mouse, frog, worms, fish, barnacle, saw — most with `_a`/`_b`/`_rest` animation frames. |
+| `backgrounds/` | 14 layered 256×256 backdrops (solid, colour, and fade variants). |
+| `sounds/` | 10 sound effects: `sfx_jump`, `sfx_jump-high`, `sfx_coin`, `sfx_gem`, `sfx_hurt`, `sfx_bump`, `sfx_disappear`, `sfx_magic`, `sfx_select`, `sfx_throw`. The game wires up jump/coin/hurt; the rest are ready to use. |

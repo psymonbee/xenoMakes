@@ -36,6 +36,21 @@ setGravity(GRAVITY);
 
 
 // ----------------------------------------------------------------------------
+//  SOUND  —  load the pack's sound effects and a tiny helper to play them
+// ----------------------------------------------------------------------------
+//  The "New Platformer" pack comes with sound effects (jump, coin, hurt…). We
+//  load them under short role names so the game can just say playSfx("jump").
+//  If a sound is missing we simply stay quiet — never crash over a sound.
+const SFX = window.packSounds("newplat");          // { jump: "…/sfx_jump.ogg", … }
+for (const [role, path] of Object.entries(SFX)) {
+  loadSound("sfx-" + role, path);
+}
+function playSfx(role, opts) {
+  if (SFX[role]) play("sfx-" + role, opts);
+}
+
+
+// ----------------------------------------------------------------------------
 //  LOAD THE PICTURES  —  give each Kenney sprite a short nickname
 //  (See ASSETS.md for the full list of art you can use.)
 // ----------------------------------------------------------------------------
@@ -74,9 +89,15 @@ if (DESIGN) {
     if (window.RESET_IDS.has(id)) continue;        // reset zones have no picture
     if (window.ASSET_INFO[id]) loadSprite(id, window.spritePath(id));
   }
-  // Also load the matching "jump" pose for whichever player character is used.
-  for (const p of ["p1", "p2", "p3"]) {
-    if (ids.has(p + "_front")) loadSprite(p + "_jump", `assets/characters/${p}_jump.png`);
+  // Also load the matching "jump" pose for any player character that's used.
+  // A player's front-pose id ends in "_front" (e.g. "p1_front" or
+  // "newplat:character_beige_front"); its jump pose swaps that for "_jump" and
+  // lives right next to it on disk, so we build the path from the same folder.
+  for (const id of ids) {
+    if (!window.ROLES.player.has(id)) continue;
+    const a = window.ASSET_INFO[id];
+    const jumpName = a.name.replace("_front", "_jump");
+    loadSprite(id.replace("_front", "_jump"), `${a.root}/${a.folder}/${jumpName}.png`);
   }
 }
 
@@ -86,22 +107,21 @@ if (DESIGN) {
 // ----------------------------------------------------------------------------
 //  When we build a designed level, each sprite needs to know how to behave:
 //  is it solid ground? a coin to collect? a dangerous hazard? the player?
-const COIN_IDS   = new Set(["coinGold", "coinSilver", "coinBronze", "gemBlue", "gemGreen", "gemRed", "gemYellow", "star"]);
-const HAZARD_IDS = new Set(["spikes", "liquidLava", "liquidLavaTop_mid", "slimeWalk1", "snailWalk1", "flyFly1", "fishSwim1", "blockerBody"]);
-const PLAYER_IDS = new Set(["p1_front", "p2_front", "p3_front"]);
-const FLAG_IDS   = new Set(["flagGreen"]);
+//
+//  These "who does what" lists now live in palette.js (window.ROLES), built from
+//  every pack's manifest. That means ANY pack's sprites — classic or new —
+//  behave correctly here, and we never have to keep two lists in sync.
+const COIN_IDS   = window.ROLES.coin;
+const HAZARD_IDS = window.ROLES.hazard;
+const PLAYER_IDS = window.ROLES.player;
+const FLAG_IDS   = window.ROLES.flag;
 // RESET zones: INVISIBLE blocks that send the player back to the start when
-// touched. In the GAME you can't see them at all. In the level designer they
-// show up as a red outline so you know where you put them. The list lives in
-// palette.js (window.RESET_IDS) so the editor and game can never disagree.
+// touched. In the GAME you can't see them at all; in the level designer they
+// show as a red outline so you know where you put them.
 const RESET_IDS  = window.RESET_IDS;
-const SOLID_IDS  = new Set(["box", "boxCoin", "boxItem", "brickWall", "bridge"]);
-const SOLID_FAMILIES = ["grass", "dirt", "sand", "snow", "stone", "castle"]; // ground blocks
 
-// Solid = you can stand on it. True for ground families and a few props.
-function isSolidId(id) {
-  return SOLID_IDS.has(id) || SOLID_FAMILIES.some((fam) => id.startsWith(fam));
-}
+// Solid = you can stand on it. palette.js knows each pack's ground families.
+const isSolidId = window.isSolidId;
 
 // Add ONE designed sprite to the world with the right behaviour for what it is.
 function addDesignTile(id, x, y) {
@@ -277,6 +297,7 @@ onKeyDown("d",     () => { player.move(PLAYER_SPEED, 0);  player.flipX = false; 
 function tryJump() {
   if (player.isGrounded()) {
     player.jump(JUMP_FORCE);
+    playSfx("jump");           // little "boing" when we leave the ground
   }
 }
 onKeyPress("space", tryJump);  // onKeyPress runs ONCE each time you press.
@@ -315,6 +336,7 @@ const scoreLabel = add([
 // When the player touches a coin: remove the coin and add to the score.
 player.onCollide("coin", (coin) => {
   destroy(coin);          // make the coin disappear
+  playSfx("coin");        // cheerful "ding!"
   score += 1;
   scoreLabel.text = "Coins: " + score + " / " + totalCoins;
 
@@ -331,6 +353,7 @@ if (totalCoins === 0) {
 
 // Touching a hazard (spikes, lava, an enemy) sends you back to the start.
 player.onCollide("hazard", () => {
+  playSfx("hurt");        // "ow!" before we get sent back
   player.pos = START_POS.clone();
   player.vel = vec2(0, 0);
 });

@@ -107,8 +107,13 @@ the browser tab to see what happens.
 There's a separate **drag-and-drop level designer**. With the local server
 running, open **http://localhost:8080/editor.html**.
 
-- A **drawer on the left** holds the sprites, sorted into tabs:
-  **Tiles, Items, Foes, Players**. Use the mouse wheel to scroll it.
+- A **drawer on the left** holds the sprites, sorted into tabs. Use the mouse
+  wheel to scroll it.
+- At the top of the drawer is a **pack picker** — click **Classic** or
+  **New Platformer** to switch art packs. Each pack has its own tabs (the New
+  Platformer pack starts on a **★ Faves** tab of handy favourites so you're not
+  scrolling hundreds of tiles). The grid even resizes to match the pack's tiles
+  (70px for Classic, 64px for New Platformer) so everything still lines up.
 - **Paint blocks in:** drag a sprite out of the drawer and let go — that spot is
   the **start** of a fill. Now move the mouse and a faded preview fills the cells
   in between. **Left-click** drops them all in; **right-click** cancels. (To
@@ -138,9 +143,32 @@ The game knows what each sprite does:
 - **the player sprite** (p1/p2/p3) → where you begin (and which character),
 - everything else (bushes, signs, clouds…) → decoration in the background.
 
-Want more sprites in the drawer? Open **`palette.js`** and add their names to the
-right category (look the names up in **`ASSETS.md`**). Both the editor and the
-game read that one shared list.
+Want more sprites in the drawer? For the **Classic** pack, open **`palette.js`**
+and add their names to the right category (look the names up in **`ASSETS.md`**).
+Both the editor and the game read that one shared list.
+
+### ➕ Adding a whole new art pack
+Kenney has **lots** of platformer packs, and they're built to be mixed. Adding one
+is the same three steps every time — no game or editor code changes:
+
+1. **Drop the art in** under `assets/packs/<your-pack>/` (folders like
+   `tiles/`, `characters/`, `enemies/`, `backgrounds/`, `sounds/`).
+2. **Add a `pack.js` manifest** in that folder that describes the pack — its
+   tile size, the sprites (grouped into categories), what they *do* (coin,
+   hazard, solid, player…), a favourites shortlist, and any sounds. See
+   `assets/packs/new-platformer/pack.js` for a worked example. (That one was
+   built automatically by `scripts/gen-pack-new-platformer.mjs`, which reads the
+   PNG files and sorts them for you — handy when a pack has hundreds of tiles.)
+3. **Load it** by adding one `<script src="assets/packs/<your-pack>/pack.js">`
+   line to **`index.html`** *and* **`editor.html`**, just above `palette.js`.
+
+That's it — the new pack shows up in the editor's pack picker, and any level you
+build with it plays in the game.
+
+> **Why packs don't clash:** the Classic pack keeps plain sprite names
+> (`grassMid`); every other pack puts its id in front (`newplat:coin_gold`).
+> That little prefix is what lets two packs both have, say, a `block_blue`
+> without confusing each other.
 
 ---
 
@@ -148,12 +176,15 @@ game read that one shared list.
 - `index.html` — loads the game.
 - `main.js` — **all the game code** (this is the fun file).
 - `editor.html` / `editor.js` — the **drag-and-drop level designer**.
-- `palette.js` — the shared list of which sprites the editor and game use.
-- `assets/` — the Kenney sprites, sorted into folders.
+- `palette.js` — the shared sprite **registry** (sizes, paths, roles, packs).
+- `assets/` — the Classic Kenney sprites, in folders.
+- `assets/packs/` — extra art **packs**, each with its own `pack.js` manifest.
+- `scripts/` — little build helpers (e.g. the pack-manifest generator).
 - `ASSETS.md` — a list of every sprite and what it is.
 - `CLAUDE.md` — notes about how the project is set up.
 
 ## 🎨 Credits
-Artwork: **Kenney "Platformer Pack"** — [kenney.nl](https://kenney.nl) — released
-under **CC0** (public domain, free for any use). Game library:
+Artwork: **Kenney** platformer packs — [kenney.nl](https://kenney.nl) — released
+under **CC0** (public domain, free for any use): the original *Platformer Pack*
+and the *New Platformer Pack* (sprites **and** sound effects). Game library:
 **[Kaplay](https://kaplay.com)** (MIT). Everything here is free and runs locally.
