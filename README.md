@@ -131,7 +131,10 @@ The game knows what each sprite does:
 - **ground tiles, boxes, bricks, bridges** → solid things you stand on,
 - **coins, gems, the star** → collect them all to win,
 - **a flag** → the goal (if your level has no coins, reach the flag to win),
-- **spikes, lava, enemies** → touch one and you respawn at the start,
+- **lava, enemies** → touch one and you respawn at the start,
+- **the reset block** → an invisible **reset zone**: you can't see it while
+  playing, but touching one sends you back to the start. In the editor it shows
+  as a **red outline** so you can see exactly where you put it.
 - **the player sprite** (p1/p2/p3) → where you begin (and which character),
 - everything else (bushes, signs, clouds…) → decoration in the background.
 

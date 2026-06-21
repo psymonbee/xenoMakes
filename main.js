@@ -25,9 +25,9 @@ const TILE_SIZE    = 70;    // size of one tile in pixels (the art is 70x70)
 //  START KAPLAY  —  this makes the game window and the canvas
 // ----------------------------------------------------------------------------
 kaplay({
-  width: 960,                 // game width in pixels
-  height: 640,                // game height in pixels
-  letterbox: true,            // keep the shape nice if the window resizes
+  // No fixed width/height (and no letterbox) means Kaplay fills the whole
+  // browser window and follows it when you resize — so the game is as big as
+  // your screen instead of a small boxed-in window.
   background: [135, 206, 235], // sky blue  (Red, Green, Blue from 0-255)
 });
 
@@ -71,6 +71,7 @@ if (PLAY_DESIGN) {
 if (DESIGN) {
   const ids = new Set(DESIGN.map((t) => t.id));
   for (const id of ids) {
+    if (window.RESET_IDS.has(id)) continue;        // reset zones have no picture
     if (window.ASSET_INFO[id]) loadSprite(id, window.spritePath(id));
   }
   // Also load the matching "jump" pose for whichever player character is used.
@@ -89,6 +90,11 @@ const COIN_IDS   = new Set(["coinGold", "coinSilver", "coinBronze", "gemBlue", "
 const HAZARD_IDS = new Set(["spikes", "liquidLava", "liquidLavaTop_mid", "slimeWalk1", "snailWalk1", "flyFly1", "fishSwim1", "blockerBody"]);
 const PLAYER_IDS = new Set(["p1_front", "p2_front", "p3_front"]);
 const FLAG_IDS   = new Set(["flagGreen"]);
+// RESET zones: INVISIBLE blocks that send the player back to the start when
+// touched. In the GAME you can't see them at all. In the level designer they
+// show up as a red outline so you know where you put them. The list lives in
+// palette.js (window.RESET_IDS) so the editor and game can never disagree.
+const RESET_IDS  = window.RESET_IDS;
 const SOLID_IDS  = new Set(["box", "boxCoin", "boxItem", "brickWall", "bridge"]);
 const SOLID_FAMILIES = ["grass", "dirt", "sand", "snow", "stone", "castle"]; // ground blocks
 
@@ -111,6 +117,13 @@ function addDesignTile(id, x, y) {
   }
   if (COIN_IDS.has(id))   return add([...base, "coin"]);   // collect these
   if (FLAG_IDS.has(id))   return add([...base, "flag"]);   // the goal
+  // An invisible reset zone. It has no picture, so instead of a sprite we use a
+  // see-through rect (opacity 0) for its size. The area() hitbox and "hazard"
+  // tag still work, so touching it sends you back to the start.
+  if (RESET_IDS.has(id)) {
+    const a = window.ASSET_INFO[id] || { w: TILE_SIZE, h: TILE_SIZE };
+    return add([rect(a.w, a.h), pos(x, y), anchor("topleft"), area(), opacity(0), "hazard"]);
+  }
   if (HAZARD_IDS.has(id)) return add([...base, "hazard"]); // touching = respawn
   if (isSolidId(id))      return add([...base, body({ isStatic: true }), "solid"]); // stand on it
 
@@ -337,29 +350,24 @@ player.onUpdate(() => {
 
 
 // ----------------------------------------------------------------------------
-//  THE CAMERA  —  "flip-screen" style (like the old classics!)
+//  THE CAMERA  —  smooth side-scroll (follows the player)
 // ----------------------------------------------------------------------------
-//  Instead of smoothly following the player, we split the level into "pages"
-//  that are each exactly one screen wide. The camera holds perfectly still
-//  while you walk across a page. The moment you step off the right edge, it
-//  JUMP-CUTS one whole screen to the next page — so you reappear on the left
-//  and walk across again. This repeats all the way to the end of the level.
-//
-//  (Vertical still follows you gently, so big jumps don't fly off the top.)
+//  The camera keeps the player in the middle of the screen and scrolls along
+//  with them, left/right and up/down. We "clamp" it so it never shows past the
+//  edges of the level. If the level is smaller than the screen in a direction,
+//  we just centre it so you don't see empty space scrolling in.
 player.onUpdate(() => {
-  const pageWidth = width();                              // one screen = one page
+  const halfW = width() / 2;
+  const halfH = height() / 2;
 
-  // Which page is the player standing in? (0 = first screen, 1 = next, ...)
-  const pageIndex = Math.floor(player.pos.x / pageWidth);
+  const camX = LEVEL_WIDTH  > width()
+    ? clamp(player.pos.x, halfW, LEVEL_WIDTH  - halfW)
+    : LEVEL_WIDTH  / 2;
 
-  // Point the camera at the CENTER of that page. Because pageIndex only changes
-  // in whole steps, camX only ever jumps a full screen at a time = the jump cut.
-  let camX = pageIndex * pageWidth + pageWidth / 2;
+  const camY = LEVEL_HEIGHT > height()
+    ? clamp(player.pos.y, halfH, LEVEL_HEIGHT - halfH)
+    : LEVEL_HEIGHT / 2;
 
-  // Don't let the camera scroll past the start or end of the level.
-  camX = clamp(camX, pageWidth / 2, LEVEL_WIDTH - pageWidth / 2);
-
-  const camY = clamp(player.pos.y, height() / 2, LEVEL_HEIGHT - height() / 2);
   setCamPos(camX, camY);
 });
 

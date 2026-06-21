@@ -34,6 +34,15 @@ const PAN_SPEED = 18;    // how fast the arrow keys scroll the world
 //  never disagree. To add/remove sprites, edit palette.js.
 const CATEGORIES = window.PALETTE.categories;
 
+// RESET zones are INVISIBLE in the game (they just send the player back to the
+// start when touched). Because you can't see them while playing, here in the
+// editor we draw them as a RED OUTLINE with a see-through middle, so you always
+// know where you placed them. The list itself lives in palette.js so the editor
+// and game can never disagree.
+// (RESET_COLOR is set up just after kaplay() starts, because rgb() only exists
+// once the engine is running.)
+const RESET_IDS = window.RESET_IDS;
+
 
 // ----------------------------------------------------------------------------
 //  START KAPLAY  —  make the editor window
@@ -48,6 +57,10 @@ kaplay({
 // We are NOT a platformer here, so we don't want gravity pulling tiles down.
 setGravity(0);
 
+// The red we use to outline invisible reset zones (see RESET_IDS above).
+// Defined here, after kaplay() has started, so the rgb() helper exists.
+const RESET_COLOR = rgb(255, 60, 60);
+
 // Stop the browser's right-click menu popping up (we use right-click to delete).
 document.addEventListener("contextmenu", (e) => e.preventDefault());
 
@@ -59,6 +72,7 @@ document.addEventListener("contextmenu", (e) => e.preventDefault());
 const ASSET = window.ASSET_INFO;
 for (const cat of CATEGORIES) {
   for (const name of cat.items) {
+    if (RESET_IDS.has(name)) continue;   // reset zones have no picture to load
     loadSprite(name, window.spritePath(name));
   }
 }
@@ -117,6 +131,22 @@ function loadLevel() {
 // Make one placed sprite in the world. anchor("topleft") means its position is
 // its top-left corner, which keeps the snapping maths nice and simple.
 function makeTile(id, x, y) {
+  // RESET zones are invisible in the game, so in the editor we draw them as a
+  // red box with a transparent middle (rect + fill:false) and a red outline.
+  // That way you can see exactly where they are while you build.
+  if (RESET_IDS.has(id)) {
+    const a = ASSET[id];
+    const o = add([
+      rect(a.w, a.h, { fill: false }),  // fill:false = see-through inside
+      pos(x, y),
+      anchor("topleft"),
+      outline(3, RESET_COLOR),          // the red border
+      z(10),
+    ]);
+    o.spriteId = id;   // still remember which sprite this is (for saving)
+    return o;
+  }
+
   const o = add([
     sprite(id),
     pos(x, y),
@@ -339,11 +369,18 @@ ui.onDraw(() => {
     const box = c.w - 12;
     const s = Math.min(box / a.w, box / a.h);
     const dw = a.w * s, dh = a.h * s;
-    drawSprite({
-      sprite: c.id,
-      pos: vec2(c.x + c.w / 2 - dw / 2, c.y + 4 + (box - dh) / 2),
-      width: dw, height: dh,
-    });
+    const dpos = vec2(c.x + c.w / 2 - dw / 2, c.y + 4 + (box - dh) / 2);
+
+    if (RESET_IDS.has(c.id)) {
+      // Reset zones are invisible in the game, so show them in the drawer as a
+      // red outlined box (matching how they look once placed in the world).
+      drawRect({
+        pos: dpos, width: dw, height: dh,
+        fill: false, outline: { width: 3, color: RESET_COLOR },
+      });
+    } else {
+      drawSprite({ sprite: c.id, pos: dpos, width: dw, height: dh });
+    }
   }
 
   // Cover the strip just under the tabs so scrolled thumbnails don't peek out.
@@ -448,9 +485,14 @@ function rebuildPaintGhosts(cx, cy) {
   const rows = Math.round((y1 - y0) / paint.h) + 1;
   if (cols * rows > 400) return;
 
+  const isReset = RESET_IDS.has(paint.id);
   for (let x = x0; x <= x1 + 0.5; x += paint.w) {
     for (let y = y0; y <= y1 + 0.5; y += paint.h) {
-      const g = add([sprite(paint.id), pos(x, y), anchor("topleft"), opacity(0.45), z(400)]);
+      // Reset zones preview as faded red boxes; everything else as a faded sprite.
+      const g = isReset
+        ? add([rect(paint.w, paint.h, { fill: false }), pos(x, y), anchor("topleft"),
+               outline(3, RESET_COLOR), opacity(0.6), z(400)])
+        : add([sprite(paint.id), pos(x, y), anchor("topleft"), opacity(0.45), z(400)]);
       paint.ghosts.push(g);
     }
   }

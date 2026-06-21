@@ -24,7 +24,8 @@ window.PALETTE = {
         "castleMid", "castleCenter",
         "box", "boxCoin", "boxItem", "brickWall", "bridge",
         "ladder_mid", "door_closedTop", "door_closedMid", "fence", "sign",
-        "liquidWater", "liquidWaterTop_mid", "liquidLava", "spikes",
+        "liquidWater", "liquidWaterTop_mid", "liquidLava",
+        "resetZone",   // INVISIBLE reset zone — has no picture (see RESET_IDS below)
       ],
     },
     {
@@ -66,3 +67,9 @@ for (const cat of window.PALETTE.categories) {
 
 // Turn a sprite name into its file path, e.g. "grassMid" -> "assets/tiles/grassMid.png"
 window.spritePath = (name) => `assets/${window.ASSET_INFO[name].folder}/${name}.png`;
+
+// RESET zones: special blocks that send the player back to the start when touched.
+// They have NO picture file — in the GAME they're invisible, and in the level
+// designer they show as a RED OUTLINE so you can see where you put them. This is
+// the ONE place that list lives, so the editor and the game can never disagree.
+window.RESET_IDS = new Set(["resetZone"]);

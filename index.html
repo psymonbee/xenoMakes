@@ -5,17 +5,18 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Coin Quest — a Kaplay platformer</title>
   <style>
-    /* Make the page a dark room so the game canvas pops in the middle. */
+    /* Let the game canvas fill the whole browser window. */
     html, body {
       margin: 0;
       height: 100%;
       background: #1e2a3a;
-      display: flex;
-      align-items: center;
-      justify-content: center;
+      overflow: hidden;        /* no scrollbars around the full-screen game */
       font-family: sans-serif;
     }
-    canvas { image-rendering: pixelated; } /* keep sprites crisp, not blurry */
+    canvas {
+      image-rendering: pixelated; /* keep sprites crisp, not blurry */
+      display: block;             /* remove the tiny gap under the canvas */
+    }
   </style>
 </head>
 <body>
