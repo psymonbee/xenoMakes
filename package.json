@@ -1,0 +1,13 @@
+{
+  "name": "xenomakes",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Coin Quest — a tiny Kaplay platformer plus a drag-and-drop level designer.",
+  "scripts": {
+    "setup": "node setup.mjs",
+    "start": "serve . -l 8080"
+  },
+  "devDependencies": {
+    "serve": "^14.2.4"
+  }
+}

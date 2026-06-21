@@ -1,0 +1,10 @@
+# Stuff that should NEVER go into git.
+
+# Downloaded dependencies. These are fetched by "npm install" on each computer,
+# so we don't store them here (there can be thousands of files!).
+node_modules/
+
+# Machine-specific editor settings and noise.
+.claude/settings.local.json
+.DS_Store
+*.log

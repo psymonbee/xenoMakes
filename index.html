@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Coin Quest — a Kaplay platformer</title>
+  <style>
+    /* Make the page a dark room so the game canvas pops in the middle. */
+    html, body {
+      margin: 0;
+      height: 100%;
+      background: #1e2a3a;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: sans-serif;
+    }
+    canvas { image-rendering: pixelated; } /* keep sprites crisp, not blurry */
+  </style>
+</head>
+<body>
+  <!--
+    1) Load the Kaplay game library from a CDN (no install needed).
+       Version is pinned to 3001.0.19 so the game keeps working the same way.
+       This creates a global function called `kaplay` that main.js uses.
+  -->
+  <script src="https://unpkg.com/kaplay@3001.0.19/dist/kaplay.js"></script>
+
+  <!-- Load the shared sprite list (used by BOTH the game and the level editor). -->
+  <script src="palette.js"></script>
+
+  <!-- 2) Load OUR game code. Everything you tweak lives in main.js. -->
+  <script src="main.js"></script>
+</body>
+</html>
