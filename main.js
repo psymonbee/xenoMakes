@@ -123,32 +123,129 @@ const RESET_IDS  = window.RESET_IDS;
 // Solid = you can stand on it. palette.js knows each pack's ground families.
 const isSolidId = window.isSolidId;
 
+
+// ----------------------------------------------------------------------------
+//  SLOPE HITBOXES  —  give ramps/hills a TRIANGLE shape instead of a big square
+// ----------------------------------------------------------------------------
+//  A slope sprite is drawn as a diagonal, but a normal area() hitbox is always a
+//  full rectangle — so the player bumps into an invisible "cube" instead of
+//  walking up the slope. To fix that we hand the slope a custom hitbox SHAPE: a
+//  triangle (or wedge) that hugs the solid part of the picture.
+//
+//  The points below are measured in TOP-LEFT coordinates: (0,0) is the top-left
+//  of the tile and (w,h) is the bottom-right. They trace the SOLID part of each
+//  slope, read straight from the Kenney art.
+//
+//  We return the raw points (a list of [x, y] corners) so the caller can both
+//  build the hitbox AND rotate it with the tile. Returns null for everything
+//  that isn't a slope (so normal blocks keep their simple rectangle hitbox).
+function slopePoints(id) {
+  const a = window.ASSET_INFO[id];
+  if (!a) return null;
+  const w = a.w, h = a.h;          // this tile's width & height in pixels
+  const n = a.name;                // the bare sprite name, e.g. "grassHillRight"
+
+  // --- "New Platformer" pack ramps (these all go DOWN to the right) ---
+  // short_b: a full 45° slope filling one tile (solid = lower-left triangle).
+  if (n.endsWith("_ramp_short_b")) return [[0, 0], [0, h], [w, h]];
+  // long ramps are a gentler slope split across two tiles:
+  //   long_a = the upper half (a wedge), long_b = the lower half (a triangle).
+  if (n.endsWith("_ramp_long_a"))  return [[0, 0], [0, h], [w, h], [w, h / 2]];
+  if (n.endsWith("_ramp_long_b"))  return [[0, h / 2], [0, h], [w, h]];
+  // (short_a and long_c are plain solid blocks — no special shape needed.)
+
+  // --- Classic Kenney hill pieces ---
+  // The "2" pieces are full solid blocks, so leave them as rectangles.
+  if (/Hill(Left|Right)2$/.test(n)) return null;
+  // "...HillRight" goes DOWN to the right (solid = lower-left triangle).
+  if (/HillRight$/.test(n)) return [[0, 0], [0, h], [w, h]];
+  // "...HillLeft" goes UP to the right (solid = lower-right triangle).
+  if (/HillLeft$/.test(n))  return [[0, h], [w, 0], [w, h]];
+
+  return null;   // not a slope — caller will use the normal square hitbox
+}
+
+// Turn TOP-LEFT slope points into a Polygon measured from the tile's CENTRE,
+// mirrored if the tile is flipped. Designed tiles are anchored at their centre
+// (so they can spin in place), and a custom area() shape must be given in that
+// same centre-based space. Rotation is applied automatically by the rotate()
+// component, so here we only flip (mirror) the points and shift them to centre.
+//   flipX mirrors left↔right; flipY mirrors top↔bottom — exactly matching what
+//   the flipped PICTURE does, so the hitbox always lines up with the art.
+function centeredSlopePoly(points, w, h, flipX, flipY) {
+  return new Polygon(points.map(([x, y]) => {
+    const fx = flipX ? w - x : x;
+    const fy = flipY ? h - y : y;
+    return vec2(fx - w / 2, fy - h / 2);
+  }));
+}
+
+
+// ----------------------------------------------------------------------------
+//  PLAYER HITBOX  —  match the body, not the big see-through picture
+// ----------------------------------------------------------------------------
+//  The "New Platformer" characters are drawn small inside a big 128x128 picture,
+//  with lots of see-through space around them. A normal area() hitbox would cover
+//  that WHOLE picture, so the player floats above the ground and bumps into
+//  slopes with its empty corners. We measured where the body actually is in the
+//  art and give the player a hitbox that hugs it instead.
+//
+//  Returns the area() component to use for a player sprite.
+function playerArea(id) {
+  const a = window.ASSET_INFO[id];
+  // New pack characters: the real body sits at x 25..103, y 31..128 (measured
+  // from the PNG). Tiles are anchored at their CENTRE, so we measure the body
+  // box from the centre too: a 128px tile's centre is (64,64), so the body's
+  // top-left of (25,31) becomes (25-64, 31-64) = (-39,-33). Size 78 wide, 97 tall.
+  if (a && a.pack === "newplat") {
+    return area({ shape: new Rect(vec2(-39, -33), 78, 97) });
+  }
+  // Classic characters fill their whole picture, so the normal hitbox is right.
+  return area();
+}
+
 // Add ONE designed sprite to the world with the right behaviour for what it is.
-function addDesignTile(id, x, y) {
-  // The shared bits every designed sprite gets: a picture, a position, and a
-  // hitbox so collisions work. anchor("topleft") matches how the editor saved it.
-  const base = [sprite(id), pos(x, y), anchor("topleft"), area()];
+//
+//  Every designed tile is anchored at its CENTRE and given a rotate(angle)
+//  component. Anchoring at the centre means a tile spins in place (instead of
+//  swinging off its corner), and Kaplay rotates the hitbox along with the
+//  picture — so rotated slopes and blocks collide correctly. The editor saves a
+//  tile's TOP-LEFT corner, so we add half its size to get the centre.
+function addDesignTile(id, x, y, angle = 0, flipX = false, flipY = false) {
+  const a = window.ASSET_INFO[id] || { w: TILE_SIZE, h: TILE_SIZE };
+  const w = a.w, h = a.h;
+  const cx = x + w / 2, cy = y + h / 2;          // top-left -> centre
+  const common = [pos(cx, cy), anchor("center"), rotate(angle)];
+  const pic = sprite(id, { flipX, flipY });      // the picture, mirrored if asked
 
   if (PLAYER_IDS.has(id)) {
-    const o = add([...base, body(), "player"]);
+    // The player gets a hitbox that hugs its body (see playerArea) instead of the
+    // default full-picture square, so it doesn't float or snag on slopes.
+    const o = add([pic, ...common, playerArea(id), body(), "player"]);
     o.baseName = id;                       // the standing picture
     o.jumpName = id.replace("_front", "_jump"); // the mid-air picture
     return o;
   }
-  if (COIN_IDS.has(id))   return add([...base, "coin"]);   // collect these
-  if (FLAG_IDS.has(id))   return add([...base, "flag"]);   // the goal
+  if (COIN_IDS.has(id))   return add([pic, ...common, area(), "coin"]);   // collect these
+  if (FLAG_IDS.has(id))   return add([pic, ...common, area(), "flag"]);   // the goal
   // An invisible reset zone. It has no picture, so instead of a sprite we use a
   // see-through rect (opacity 0) for its size. The area() hitbox and "hazard"
   // tag still work, so touching it sends you back to the start.
   if (RESET_IDS.has(id)) {
-    const a = window.ASSET_INFO[id] || { w: TILE_SIZE, h: TILE_SIZE };
-    return add([rect(a.w, a.h), pos(x, y), anchor("topleft"), area(), opacity(0), "hazard"]);
+    return add([rect(w, h), ...common, area(), opacity(0), "hazard"]);
   }
-  if (HAZARD_IDS.has(id)) return add([...base, "hazard"]); // touching = respawn
-  if (isSolidId(id))      return add([...base, body({ isStatic: true }), "solid"]); // stand on it
+  if (HAZARD_IDS.has(id)) return add([pic, ...common, area(), "hazard"]); // touching = respawn
+  if (isSolidId(id)) {
+    // Stand on it. If it's a slope, give it a triangle hitbox that matches the
+    // art — mirrored to match a flipped picture; otherwise a normal square
+    // hitbox (area()) is exactly right.
+    const pts = slopePoints(id);
+    const hitbox = pts ? area({ shape: centeredSlopePoly(pts, w, h, flipX, flipY) }) : area();
+    return add([pic, ...common, hitbox, body({ isStatic: true }), "solid"]);
+  }
 
   // Anything else (bushes, signs, clouds…) is just decoration behind the action.
-  return add([sprite(id), pos(x, y), anchor("topleft"), z(-1)]);
+  return add([pic, ...common, z(-1)]);
 }
 
 // Build a whole designed level and report how big it ended up (for the camera).
@@ -167,7 +264,11 @@ function buildDesignLevel(design) {
   const offX = minX - TILE_SIZE;
   const offY = minY - TILE_SIZE;
   for (const t of design) {
-    if (window.ASSET_INFO[t.id]) addDesignTile(t.id, t.x - offX, t.y - offY);
+    // t.angle is how far the editor rotated this tile; t.flipX/t.flipY mirror it.
+    // (All default to 0/false for older saves that never turned or flipped tiles.)
+    if (window.ASSET_INFO[t.id]) {
+      addDesignTile(t.id, t.x - offX, t.y - offY, t.angle || 0, t.flipX || false, t.flipY || false);
+    }
   }
 
   return { width: (maxX - offX) + TILE_SIZE, height: (maxY - offY) + TILE_SIZE };

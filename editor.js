@@ -116,6 +116,19 @@ let cam       = vec2(0, 0);        // where the world camera is looking
 // all in, right-click cancels. null when we're not painting. See the bottom.
 let paint     = null;              // { id, w, h, ax, ay, ghosts:[], lastX, lastY }
 
+// ROTATION + FLIP: how the NEXT tile (and whatever you're holding/painting) is
+// turned and mirrored. Q / E turn it; X mirrors left-right; Y mirrors up-down.
+let brushAngle = 0;
+let brushFlipX = false;
+let brushFlipY = false;
+
+// When a tile is turned 90° or 270°, its width and height swap (a tall tile lies
+// down). This returns the [width, height] a tile actually takes up at an angle,
+// so snapping and painting still line things up. (At 0°/180° nothing changes.)
+function effSize(w, h, angle) {
+  return (angle % 180 === 0) ? [w, h] : [h, w];
+}
+
 // Start the view so world (0,0) sits just to the RIGHT of the drawer, and a
 // little down from the top — a comfy place to start building.
 cam.x = width() / 2 - DRAWER_W - 40;
@@ -133,8 +146,11 @@ const SAVE_KEY = "coinquest-level";   // where we save in the browser
 //  SAVE & LOAD  —  keep the level in the browser so it survives a refresh
 // ----------------------------------------------------------------------------
 function saveLevel() {
-  // We only need each sprite's name and where it is.
-  const data = placed.map((o) => ({ id: o.spriteId, x: o.pos.x, y: o.pos.y }));
+  // We only need each sprite's name, where it is, how far it's turned, and any flip.
+  const data = placed.map((o) => ({
+    id: o.spriteId, x: o.pos.x, y: o.pos.y,
+    angle: o.spriteAngle || 0, flipX: o.flipX || false, flipY: o.flipY || false,
+  }));
   localStorage.setItem(SAVE_KEY, JSON.stringify(data));
 }
 
@@ -144,7 +160,7 @@ function loadLevel() {
   try {
     for (const t of JSON.parse(raw)) {
       if (!ASSET[t.id]) continue;         // skip sprites we no longer know
-      placed.push(makeTile(t.id, t.x, t.y));
+      placed.push(makeTile(t.id, t.x, t.y, t.angle || 0, t.flipX || false, t.flipY || false));
     }
   } catch (e) {
     // If the saved data is broken somehow, just start fresh instead of crashing.
@@ -152,32 +168,46 @@ function loadLevel() {
   }
 }
 
-// Make one placed sprite in the world. anchor("topleft") means its position is
-// its top-left corner, which keeps the snapping maths nice and simple.
-function makeTile(id, x, y) {
-  // RESET zones are invisible in the game, so in the editor we draw them as a
-  // red box with a transparent middle (rect + fill:false) and a red outline.
-  // That way you can see exactly where they are while you build.
-  if (RESET_IDS.has(id)) {
-    const a = ASSET[id];
-    const o = add([
-      rect(a.w, a.h, { fill: false }),  // fill:false = see-through inside
-      pos(x, y),
-      anchor("topleft"),
-      outline(3, RESET_COLOR),          // the red border
-      z(10),
-    ]);
-    o.spriteId = id;   // still remember which sprite this is (for saving)
-    return o;
-  }
+// Make one placed sprite in the world. Its position is its TOP-LEFT corner
+// (anchor "topleft"), which keeps the snapping maths simple. We DRAW the tile
+// ourselves (drawSprite) so we can spin it around its centre by o.spriteAngle
+// without moving its top-left corner — the snapping and the picture stay in sync.
+//
+//   o.spriteId   = which sprite this is (for saving + drawing)
+//   o.spriteAngle= how far it's turned (0/90/180/270)
+//   o.flipX/o.flipY = mirrored left-right / up-down?
+//   o.width/o.height = its size in pixels (used by snapping + picking)
+//   o.drawOpacity= how solid it looks (1 normal, lower while it's a "ghost")
+function makeTile(id, x, y, angle = 0, flipX = false, flipY = false) {
+  const a = ASSET[id];
+  const o = add([pos(x, y), anchor("topleft"), z(10)]);
+  o.spriteId = id;
+  o.spriteAngle = angle;
+  o.flipX = flipX;
+  o.flipY = flipY;
+  o.width = a.w;
+  o.height = a.h;
+  o.drawOpacity = 1;
 
-  const o = add([
-    sprite(id),
-    pos(x, y),
-    anchor("topleft"),
-    z(10),
-  ]);
-  o.spriteId = id;   // remember which sprite this is (for saving)
+  o.onDraw(() => {
+    // Drawn relative to the tile's top-left, so its CENTRE is at (w/2, h/2).
+    const c = vec2(o.width / 2, o.height / 2);
+    if (RESET_IDS.has(o.spriteId)) {
+      // RESET zones are invisible in the game; here we show them as a red box
+      // with a see-through middle so you can see where you placed them.
+      drawRect({
+        pos: c, anchor: "center", angle: o.spriteAngle,
+        width: o.width, height: o.height, fill: false,
+        outline: { width: 3, color: RESET_COLOR }, opacity: o.drawOpacity,
+      });
+    } else {
+      drawSprite({
+        sprite: o.spriteId, pos: c, anchor: "center", angle: o.spriteAngle,
+        flipX: o.flipX, flipY: o.flipY, opacity: o.drawOpacity,
+      });
+    }
+  });
+
   return o;
 }
 
@@ -231,7 +261,7 @@ function snapPosition(targetX, targetY, w, h, exclude) {
   for (const p of placed) {
     if (p === exclude) continue;          // don't snap a tile to itself
     const px = p.pos.x, py = p.pos.y;
-    const pw = p.width,  ph = p.height;
+    const [pw, ph] = effSize(p.width, p.height, p.spriteAngle); // turned tiles swap w/h
 
     const candidates = [
       // To the right of p (edges touching): tops aligned, then bottoms aligned.
@@ -419,9 +449,11 @@ ui.onDraw(() => {
     if (c.y + c.h < listTop() || c.y > listEnd) continue; // off-screen, skip
 
     const hot = inRect(mx, my, c) && my > listTop() && my < listEnd;
+    // Light thumbnail cells so the dark OUTLINES of blocks (stone, castle, etc.)
+    // stand out instead of blending into the dark drawer. Hovering brightens it.
     drawRect({
       pos: vec2(c.x, c.y), width: c.w, height: c.h, radius: 5,
-      color: hot ? rgb(70, 84, 110) : rgb(40, 50, 70),
+      color: hot ? rgb(255, 255, 255) : rgb(214, 221, 232),
     });
 
     // Fit the sprite inside the cell, keeping its shape (no squishing).
@@ -474,9 +506,18 @@ ui.onDraw(() => {
 
   // A little help line along the bottom of the screen (right of the drawer).
   const help = paint
-    ? "PAINTING: move the mouse to size the rectangle  •  left-click to fill it  •  right-click to cancel"
-    : "Drag a sprite out to start painting  •  drag placed tiles to move  •  right-click or drag to the drawer to delete  •  arrow keys scroll";
+    ? "PAINTING: move the mouse to size the rectangle  •  Q / E rotate  •  X / Y flip  •  left-click to fill it  •  right-click to cancel"
+    : "Drag a sprite out to paint  •  Q / E rotate  •  X / Y flip (held tile, or the one under the mouse)  •  drag placed tiles to move  •  right-click to delete  •  arrows scroll";
   drawText({ text: help, pos: vec2(DRAWER_W + 14, height() - 22), size: 13, color: rgb(255, 255, 255), opacity: 0.75 });
+
+  // A little badge (top-right) showing the current rotation + flip, so you always
+  // know how the next tile will be placed.
+  const flips = (brushFlipX ? " ⇆" : "") + (brushFlipY ? " ⇅" : "");
+  drawText({
+    text: "Rotation: " + brushAngle + "°" + (flips ? "   Flip:" + flips : ""),
+    pos: vec2(width() - 14, 14), size: 16, anchor: "topright",
+    color: rgb(255, 255, 255), outline: { width: 3, color: rgb(0, 0, 0) },
+  });
 });
 
 
@@ -501,15 +542,20 @@ function pickPlaced(worldPt) {
 //  existing one). The faded ghost is just the same object at low opacity.
 // ----------------------------------------------------------------------------
 function startNewDrag(id) {
-  const o = makeTile(id, 0, 0);
-  o.opacity = 0.6;
+  // A new tile inherits the current rotation + flip, so you can set it once and
+  // place many the same way.
+  const o = makeTile(id, 0, 0, brushAngle, brushFlipX, brushFlipY);
+  o.drawOpacity = 0.6;
   o.z = 500;                          // float above everything while dragging
   drag = { mode: "new", obj: o, w: ASSET[id].w, h: ASSET[id].h };
 }
 
 function startMoveDrag(o) {
-  o.opacity = 0.6;
+  o.drawOpacity = 0.6;
   o.z = 500;
+  brushAngle = o.spriteAngle;         // so Q/E/X/Y keep adjusting from its current state
+  brushFlipX = o.flipX;
+  brushFlipY = o.flipY;
   drag = { mode: "move", obj: o, w: ASSET[o.spriteId].w, h: ASSET[o.spriteId].h };
 }
 
@@ -528,7 +574,14 @@ function removeFromPlaced(o) {
 
 // Start painting, anchored at the spot where a tile was just dropped.
 function startPaint(id, ax, ay) {
-  paint = { id, w: ASSET[id].w, h: ASSET[id].h, ax, ay, ghosts: [], lastX: NaN, lastY: NaN };
+  // nw/nh = the tile's normal size; w/h = the size it takes up at the current
+  // angle (swapped when turned 90°/270°) so the fill grid lines up.
+  const [w, h] = effSize(ASSET[id].w, ASSET[id].h, brushAngle);
+  paint = {
+    id, nw: ASSET[id].w, nh: ASSET[id].h, w, h,
+    angle: brushAngle, flipX: brushFlipX, flipY: brushFlipY,
+    ax, ay, ghosts: [], lastX: NaN, lastY: NaN,
+  };
 }
 
 // Redraw the faded preview to cover the rectangle from the anchor to (cx, cy).
@@ -549,11 +602,10 @@ function rebuildPaintGhosts(cx, cy) {
   const isReset = RESET_IDS.has(paint.id);
   for (let x = x0; x <= x1 + 0.5; x += paint.w) {
     for (let y = y0; y <= y1 + 0.5; y += paint.h) {
-      // Reset zones preview as faded red boxes; everything else as a faded sprite.
-      const g = isReset
-        ? add([rect(paint.w, paint.h, { fill: false }), pos(x, y), anchor("topleft"),
-               outline(3, RESET_COLOR), opacity(0.6), z(400)])
-        : add([sprite(paint.id), pos(x, y), anchor("topleft"), opacity(0.45), z(400)]);
+      // A faded, correctly-rotated/flipped preview tile (drawOpacity < 1 = "ghost").
+      const g = makeTile(paint.id, x, y, paint.angle, paint.flipX, paint.flipY);
+      g.drawOpacity = isReset ? 0.6 : 0.45;
+      g.z = 400;
       paint.ghosts.push(g);
     }
   }
@@ -563,12 +615,12 @@ function rebuildPaintGhosts(cx, cy) {
 function commitPaint() {
   // If the mouse never moved, at least place the single anchor tile.
   if (paint.ghosts.length === 0) {
-    placed.push(makeTile(paint.id, paint.ax, paint.ay));
+    placed.push(makeTile(paint.id, paint.ax, paint.ay, paint.angle, paint.flipX, paint.flipY));
   }
   for (const g of paint.ghosts) {
     const dup = placed.some((o) =>
       o.spriteId === paint.id && Math.abs(o.pos.x - g.pos.x) < 1 && Math.abs(o.pos.y - g.pos.y) < 1);
-    if (!dup) placed.push(makeTile(paint.id, g.pos.x, g.pos.y));
+    if (!dup) placed.push(makeTile(paint.id, g.pos.x, g.pos.y, paint.angle, paint.flipX, paint.flipY));
     destroy(g);
   }
   paint = null;
@@ -681,7 +733,7 @@ onMouseRelease("left", () => {
     startPaint(id, ax, ay);
   } else {
     // Finished MOVING an existing tile — drop it where it snapped.
-    drag.obj.opacity = 1;
+    drag.obj.drawOpacity = 1;
     drag.obj.z = 10;
   }
   saveLevel();
@@ -698,6 +750,75 @@ onScroll((delta) => {
   const maxScroll = Math.max(0, listContentHeight() - viewportH);
   scrollY = clamp(scrollY + delta.y, 0, maxScroll);
 });
+
+
+// ----------------------------------------------------------------------------
+//  ROTATE  —  press Q (turn left) or E (turn right)
+// ----------------------------------------------------------------------------
+//  Rotation works on whatever makes sense right now:
+//    • holding a tile (dragging)  -> turn the tile you're about to drop
+//    • painting a fill            -> turn the whole brush
+//    • hovering a placed tile     -> turn just that one tile, in place
+//    • over empty space           -> set the angle for the NEXT tile you place
+//  dir is +1 for clockwise (E) or -1 for counter-clockwise (Q).
+function rotateBrush(dir) {
+  // Hovering a placed tile (and not holding/painting one)? Turn just that tile.
+  if (!drag && !paint && mousePos().x >= DRAWER_W) {
+    const hit = pickPlaced(toWorld(mousePos()));
+    if (hit) {
+      hit.spriteAngle = (hit.spriteAngle + dir * 90 + 360) % 360;
+      brushAngle = hit.spriteAngle;   // remember it for the next tile too
+      saveLevel();
+      return;
+    }
+  }
+
+  // Otherwise turn the "brush" (the angle new tiles get).
+  brushAngle = (brushAngle + dir * 90 + 360) % 360;
+
+  if (drag) drag.obj.spriteAngle = brushAngle;     // spin the held tile
+  if (paint) {                                     // spin the whole fill brush
+    paint.angle = brushAngle;
+    [paint.w, paint.h] = effSize(paint.nw, paint.nh, paint.angle);
+    paint.lastX = NaN; paint.lastY = NaN;          // force the preview to rebuild
+  }
+}
+onKeyPress("q", () => rotateBrush(-1));
+onKeyPress("e", () => rotateBrush(1));
+
+
+// ----------------------------------------------------------------------------
+//  FLIP  —  press X (mirror left-right) or Y (mirror up-down)
+// ----------------------------------------------------------------------------
+//  Flipping MIRRORS a tile instead of turning it — handy for slopes, where a
+//  mirror keeps the grass on top but faces the hill the other way. Like rotate,
+//  it works on the held tile, the paint brush, the tile under the mouse, or sets
+//  the default for the next tile. axis is "x" (left-right) or "y" (up-down).
+function flipBrush(axis) {
+  const toggle = (o) => { if (axis === "x") o.flipX = !o.flipX; else o.flipY = !o.flipY; };
+
+  // Hovering a placed tile (and not holding/painting one)? Flip just that tile.
+  if (!drag && !paint && mousePos().x >= DRAWER_W) {
+    const hit = pickPlaced(toWorld(mousePos()));
+    if (hit) {
+      toggle(hit);
+      brushFlipX = hit.flipX; brushFlipY = hit.flipY;  // remember for the next tile
+      saveLevel();
+      return;
+    }
+  }
+
+  // Otherwise flip the "brush" (what new tiles get).
+  if (axis === "x") brushFlipX = !brushFlipX; else brushFlipY = !brushFlipY;
+
+  if (drag) { drag.obj.flipX = brushFlipX; drag.obj.flipY = brushFlipY; }
+  if (paint) {
+    paint.flipX = brushFlipX; paint.flipY = brushFlipY;
+    paint.lastX = NaN; paint.lastY = NaN;            // force the preview to rebuild
+  }
+}
+onKeyPress("x", () => flipBrush("x"));
+onKeyPress("y", () => flipBrush("y"));
 
 
 // ----------------------------------------------------------------------------
@@ -720,10 +841,11 @@ onUpdate(() => {
 
   // If we're dragging a sprite, snap its ghost to the nicest spot under mouse.
   if (drag) {
+    const [dw, dh] = effSize(drag.w, drag.h, drag.obj.spriteAngle); // turned tiles swap w/h
     const w = toWorld(mousePos());
-    const tx = w.x - drag.w / 2;        // mouse points at the tile's CENTER
-    const ty = w.y - drag.h / 2;
-    drag.obj.pos = snapPosition(tx, ty, drag.w, drag.h, drag.obj);
+    const tx = w.x - dw / 2;             // mouse points at the tile's CENTER
+    const ty = w.y - dh / 2;
+    drag.obj.pos = snapPosition(tx, ty, dw, dh, drag.obj);
   }
 
   // If we're painting, preview the rectangle of faded tiles under the mouse.
