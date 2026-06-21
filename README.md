@@ -102,18 +102,34 @@ the browser tab to see what happens.
 
 ---
 
+## 🏠 My Levels (the home page)
+
+You can keep **lots** of levels now, each with its own name. With the local
+server running, open **http://localhost:8080/home.html** to see them all.
+
+- Every level shows as a **card** with a little **picture of its start**, a
+  **▶ play button**, and **Edit** / **Delete** buttons. Click the picture to
+  **play**, or **Edit** to open it in the designer.
+- The big green **➕ New blank level** button starts a fresh, empty level.
+- The pictures are drawn live from each level — so they're always up to date.
+
+While you're **playing** a level you can press **E** to edit *that* level, **H**
+to come back to this home page, or **R** to restart.
+
+---
+
 ## 🧱 Level Designer (drag-and-drop builder)
 
-There's a separate **drag-and-drop level designer**. With the local server
-running, open **http://localhost:8080/editor.html**.
+The **drag-and-drop level designer** is where you build a level. Open it from the
+home page's **Edit** or **➕ New blank level** buttons (or go straight to
+**http://localhost:8080/editor.html**).
 
+- The **name** of the level you're editing shows at the **top-left** of the
+  drawer — **click it to rename** the level. The **🏠 Home** button (top-right)
+  saves and goes back to your levels.
 - A **drawer on the left** holds the sprites, sorted into tabs. Use the mouse
-  wheel to scroll it.
-- At the top of the drawer is a **pack picker** — click **Classic** or
-  **New Platformer** to switch art packs. Each pack has its own tabs (the New
-  Platformer pack starts on a **★ Faves** tab of handy favourites so you're not
-  scrolling hundreds of tiles). The grid even resizes to match the pack's tiles
-  (70px for Classic, 64px for New Platformer) so everything still lines up.
+  wheel to scroll it. The tabs start on a **★ Faves** tab of handy favourites so
+  you're not scrolling past hundreds of tiles to find the good ones.
 - **Paint blocks in:** drag a sprite out of the drawer and let go — that spot is
   the **start** of a fill. Now move the mouse and a faded preview fills the cells
   in between. **Left-click** drops them all in; **right-click** cancels. (To
@@ -131,8 +147,8 @@ running, open **http://localhost:8080/editor.html**.
   exception, hover a sprite and tap **`[`** to send it back or **`]`** to bring
   it forward.
 - Use the **arrow keys** (or drag empty space) to scroll around a big level.
-- Your design **saves automatically** in the browser, so it's still there when
-  you come back.
+- Your design **saves automatically** in the browser (under its name), so it's
+  still there when you come back — and it shows up on the **home page**.
 
 ### 🚶 Make a foe move (give it a path)
 Enemies normally sit still. To make one **patrol**, click the purple
@@ -157,7 +173,7 @@ Drag a foe in normal mode and its whole path moves with it.
 ### ▶ Play your level
 Press the green **Play my level** button in the editor and the game opens on
 **your** creation instead of the built-in one. While playing, press **E** to
-hop back to the editor, or **R** to restart.
+hop back to the editor, **H** to go to the home page, or **R** to restart.
 
 The game knows what each sprite does:
 - **ground tiles, boxes, bricks, bridges** → solid things you stand on,
@@ -200,10 +216,12 @@ build with it plays in the game.
 ---
 
 ## 📁 What's in here
+- `home.html` / `home.js` — the **home page**: a gallery of your saved levels.
 - `index.html` — loads the game.
 - `main.js` — **all the game code** (this is the fun file).
 - `editor.html` / `editor.js` — the **drag-and-drop level designer**.
 - `palette.js` — the shared sprite **registry** (sizes, paths, roles, packs).
+- `levels.js` — the shared **save box** that remembers all your named levels.
 - `assets/` — the Classic Kenney sprites, in folders.
 - `assets/packs/` — extra art **packs**, each with its own `pack.js` manifest.
 - `scripts/` — little build helpers (e.g. the pack-manifest generator).

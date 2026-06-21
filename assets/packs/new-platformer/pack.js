@@ -9,7 +9,7 @@
 (window.EXTRA_PACKS = window.EXTRA_PACKS || []).push(
 {
   "id": "newplat",
-  "label": "New Platformer",
+  "label": "Standard",
   "prefix": "newplat",
   "root": "assets/packs/new-platformer",
   "sizes": {

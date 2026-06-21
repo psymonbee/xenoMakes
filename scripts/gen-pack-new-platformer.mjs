@@ -113,7 +113,7 @@ const sounds = {
 // --- Assemble the manifest in the SAME shape palette.js expects. ------------
 const manifest = {
   id: "newplat",
-  label: "New Platformer",
+  label: "Standard",
   prefix: "newplat",                       // ids become "newplat:<name>"
   root: "assets/packs/new-platformer",
   sizes: { tileW: 64, tileH: 64, charW: 128, charH: 128 },

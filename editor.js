@@ -37,8 +37,12 @@ const DRAG_Z    = 660;   // a tile being dragged/painted floats above the artwor
 //  never disagree. There can be several art PACKS (Classic, New Platformer, …);
 //  a row of buttons at the top of the drawer picks which one you're building
 //  with. To add/remove sprites or packs, edit palette.js (and the pack files).
-const PACKS = window.PACKS;
-let activePack = 0;     // which art pack is selected
+// ALL_PACKS = every pack (we still LOAD all their sprites, so an old level that
+// used Classic tiles keeps showing up). PACKS = only the packs we OFFER in the
+// drawer's pack-picker — "hidden" packs (like Classic) are left out on purpose.
+const EDITOR_ALL_PACKS = window.PACKS;
+const PACKS = window.PACKS.filter((p) => !p.hidden);
+let activePack = 0;     // which art pack is selected (index into PACKS)
 
 // The categories shown for the current pack. If the pack has a "favourites"
 // shortlist, we slip a "★ Faves" tab in front so the best bits are one click
@@ -94,7 +98,7 @@ document.addEventListener("contextmenu", (e) => e.preventDefault());
 // ----------------------------------------------------------------------------
 //  ASSET[name] = { w, h, folder }  — comes from the shared palette.js.
 const ASSET = window.ASSET_INFO;
-for (const pack of PACKS) {
+for (const pack of EDITOR_ALL_PACKS) {   // load EVERY pack's art, even hidden ones
   for (const cat of pack.categories) {
     for (const id of cat.items) {
       if (RESET_IDS.has(id)) continue;   // reset zones have no picture to load
@@ -153,15 +157,21 @@ let panning = false;
 let panStartMouse = vec2(0, 0);
 let panStartCam   = vec2(0, 0);
 
-const SAVE_KEY = "coinquest-level";   // where we save in the browser
+// WHICH level are we editing? The home page opens us with "?level=<id>" (edit an
+// existing one) or "?new=1" (start a fresh one). currentLevel is that level
+// object from the shared store (levels.js). See resolveCurrentLevel() at the
+// bottom of the file, which fills this in before we load anything.
+const params = new URLSearchParams(location.search);
+let currentLevel = null;
 
 
 // ----------------------------------------------------------------------------
 //  SAVE & LOAD  —  keep the level in the browser so it survives a refresh
 // ----------------------------------------------------------------------------
-function saveLevel() {
+// Turn the placed sprites into the small list of facts we save (and the game reads).
+function levelTiles() {
   // We only need each sprite's name, where it is, how far it's turned, and any flip.
-  const data = placed.map((o) => {
+  return placed.map((o) => {
     const t = {
       id: o.spriteId, x: o.pos.x, y: o.pos.y,
       angle: o.spriteAngle || 0, flipX: o.flipX || false, flipY: o.flipY || false,
@@ -178,14 +188,21 @@ function saveLevel() {
     }
     return t;
   });
-  localStorage.setItem(SAVE_KEY, JSON.stringify(data));
+}
+
+function saveLevel() {
+  if (!currentLevel) return;
+  currentLevel.tiles = levelTiles();
+  currentLevel.pack = activePack;          // remember which pack we were building with
+  window.Levels.put(currentLevel);         // save it into the shared "save box"
+  // Mirror to the OLD single-level key too, so any old "?play=1" link still works.
+  localStorage.setItem("coinquest-level", JSON.stringify(currentLevel.tiles));
 }
 
 function loadLevel() {
-  const raw = localStorage.getItem(SAVE_KEY);
-  if (!raw) return;                       // nothing saved yet
+  if (!currentLevel || !Array.isArray(currentLevel.tiles)) return;
   try {
-    for (const t of JSON.parse(raw)) {
+    for (const t of currentLevel.tiles) {
       if (!ASSET[t.id]) continue;         // skip sprites we no longer know
       const o = makeTile(t.id, t.x, t.y, t.angle || 0, t.flipX || false, t.flipY || false);
       // Bring back a nudged draw order, if this sprite had one.
@@ -205,6 +222,35 @@ function loadLevel() {
     // If the saved data is broken somehow, just start fresh instead of crashing.
     console.warn("Could not load saved level:", e);
   }
+}
+
+// Figure out which level we're editing, creating one if needed. Called once at
+// the very bottom, just before loadLevel().
+function resolveCurrentLevel() {
+  const id = params.get("level");
+  if (params.get("new") === "1") {
+    // The home page's "New blank level" button sends us here.
+    currentLevel = window.Levels.create(window.Levels.suggestName(), 0);
+    history.replaceState(null, "", "?level=" + currentLevel.id);   // refresh-safe URL
+  } else if (id && window.Levels.get(id)) {
+    currentLevel = window.Levels.get(id);
+  } else {
+    // Opened with no level chosen: carry on with the most recent one, or make a
+    // first level if there are none yet.
+    const all = window.Levels.all();
+    currentLevel = all[0] || window.Levels.create(window.Levels.suggestName(), 0);
+    history.replaceState(null, "", "?level=" + currentLevel.id);
+  }
+  // Reopen the drawer on whichever pack this level was last built with.
+  if (typeof currentLevel.pack === "number" && currentLevel.pack >= 0 && currentLevel.pack < PACKS.length) {
+    activePack = currentLevel.pack;
+  }
+}
+
+// Pop up a box to rename the level we're editing.
+function renameCurrent() {
+  const name = prompt("Name this level:", currentLevel ? currentLevel.name : "My Level");
+  if (name && name.trim()) { currentLevel.name = name.trim(); saveLevel(); }
 }
 
 // Make one placed sprite in the world. Its position is its TOP-LEFT corner
@@ -437,8 +483,25 @@ const CLEAR_H   = 40;   // height of the "Clear all" button at the bottom
 const COLS      = 3;    // thumbnails per row
 const PAD        = 8;   // gap between things
 
+// We only SHOW the pack-picker row when there's more than one pack to choose
+// from. With a single pack (Classic is hidden), the row would just be one
+// pointless button — so we hide it and give that space back to the sprite list.
+function showPackRow() { return PACKS.length > 1; }
+
+// The "🏠 Home" button, tucked into the right side of the title bar.
+function homeRect() {
+  const w = 64;
+  return { x: DRAWER_W - w - PAD, y: 8, w, h: TITLE_H - 16 };
+}
+
+// The clickable level-NAME area on the left of the title bar (click to rename).
+function nameRect() {
+  return { x: PAD, y: 8, w: homeRect().x - PAD * 2, h: TITLE_H - 16 };
+}
+
 // The pack-picker buttons (one per art pack), in a row under the title.
 function packRects() {
+  if (!showPackRow()) return [];
   const out = [];
   const bw = (DRAWER_W - PAD * (PACKS.length + 1)) / PACKS.length;
   let x = PAD;
@@ -454,7 +517,8 @@ function packRects() {
 function tabRects() {
   const out = [];
   const list = cats();
-  let x = PAD, y = TITLE_H + PAD + PACK_H + PAD;   // below the pack-picker row
+  // Start below the pack-picker row — or right under the title if that row is hidden.
+  let x = PAD, y = TITLE_H + PAD + (showPackRow() ? PACK_H + PAD : 0);
   const tw = (DRAWER_W - PAD * (COLS + 1)) / COLS; // same width as 3 columns
   for (let i = 0; i < list.length; i++) {
     if (x + tw > DRAWER_W) { x = PAD; y += TAB_H + PAD; } // wrap to next row
@@ -579,9 +643,19 @@ ui.onDraw(() => {
   // The drawer panel background.
   drawRect({ pos: vec2(0, 0), width: DRAWER_W, height: height(), color: rgb(28, 36, 52), opacity: 0.96 });
 
-  // Title bar.
+  // Title bar: the level's NAME on the left (click to rename) + a Home button.
   drawRect({ pos: vec2(0, 0), width: DRAWER_W, height: TITLE_H, color: rgb(44, 56, 78) });
-  drawText({ text: "🧱 Level Designer", pos: vec2(PAD, 13), size: 18, color: rgb(255, 255, 255) });
+  const nr = nameRect();
+  const nameHot = inRect(mx, my, nr);
+  drawText({
+    text: "🧱 " + (currentLevel ? currentLevel.name : "Level"),
+    pos: vec2(nr.x, TITLE_H / 2), size: 16, anchor: "left",
+    width: nr.w, color: nameHot ? rgb(255, 235, 150) : rgb(255, 255, 255),
+  });
+  const hr = homeRect();
+  const homeHot = inRect(mx, my, hr);
+  drawRect({ pos: vec2(hr.x, hr.y), width: hr.w, height: hr.h, radius: 6, color: homeHot ? rgb(90, 160, 240) : rgb(60, 74, 102) });
+  drawText({ text: "🏠 Home", pos: vec2(hr.x + hr.w / 2, hr.y + hr.h / 2), size: 12, anchor: "center", color: rgb(255, 255, 255) });
 
   // Pack-picker row (Classic / New Platformer / …).
   paintPackRow(mx, my);
@@ -648,6 +722,11 @@ ui.onDraw(() => {
       anchor: "center", color: rgb(255, 255, 255),
     });
   }
+
+  // Cover the strip BELOW the list, so a thumbnail row that pokes past the
+  // bottom of the list can't show through behind the buttons (the buttons are
+  // drawn on top of this cover next).
+  drawRect({ pos: vec2(0, listEnd), width: DRAWER_W, height: height() - listEnd, color: rgb(28, 36, 52) });
 
   // The "Foe Paths" toggle (turns path-drawing mode on/off).
   const fr = pathsRect();
@@ -846,6 +925,10 @@ function cancelPaint() {
 onMousePress("left", () => {
   const m = mousePos();
 
+  // --- The title-bar buttons work no matter what mode we're in. ---
+  if (inRect(m.x, m.y, homeRect())) { saveLevel(); window.location.href = "home"; return; }
+  if (inRect(m.x, m.y, nameRect()))  { renameCurrent(); return; }
+
   // --- The "Foe Paths" toggle works no matter what mode we're in. ---
   if (inRect(m.x, m.y, pathsRect())) {
     if (paint) cancelPaint();
@@ -864,7 +947,7 @@ onMousePress("left", () => {
     }
     // In the drawer area, only the Play button still does something.
     if (m.x < DRAWER_W) {
-      if (inRect(m.x, m.y, playRect())) { saveLevel(); window.location.href = "./?play=1"; return; }
+      if (inRect(m.x, m.y, playRect())) { saveLevel(); window.location.href = "./?play=" + currentLevel.id; return; }
       return;
     }
     // Out in the world: click a foe to select it, or click a cell to add a waypoint.
@@ -907,7 +990,7 @@ onMousePress("left", () => {
     // even on servers that hide ".html" in the address bar.
     if (inRect(m.x, m.y, playRect())) {
       saveLevel();
-      window.location.href = "./?play=1";
+      window.location.href = "./?play=" + currentLevel.id;
       return;
     }
     // The clear button?
@@ -1150,6 +1233,7 @@ onUpdate(() => {
 
 
 // ----------------------------------------------------------------------------
-//  GO!  —  load any saved level and we're ready to build
+//  GO!  —  work out which level we're editing, load it, and we're ready to build
 // ----------------------------------------------------------------------------
+resolveCurrentLevel();
 loadLevel();
