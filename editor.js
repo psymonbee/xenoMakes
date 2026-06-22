@@ -140,6 +140,40 @@ let brushAngle = 0;
 let brushFlipX = false;
 let brushFlipY = false;
 
+// CLICK-TO-PLACE: as well as dragging a block out of the drawer, you can simply
+// CLICK a block to "arm" it (it lights up), then click squares in the world to
+// drop it. `armed` is the sprite id you've picked, or null. `pressThumb`
+// remembers a mouse-press on a thumbnail until we know whether it's a click
+// (arm it) or the start of a drag (the old drag-and-drop). `armedGhost` is a
+// faded preview tile that follows the cursor so you can see where it'll land.
+let armed      = null;   // full sprite id currently armed from the drawer, or null
+let pressThumb = null;   // { id, start } — a thumbnail press we haven't decided yet
+let armedGhost = null;   // faded preview of the armed block under the cursor
+const CLICK_DIST = 5;    // move more than this (px) and a press becomes a drag
+
+// WHAT DOES CLICKING DO FOR EACH KIND OF BLOCK? (keyed by the block's layer,
+// which palette.js already works out for every sprite). This is the one place
+// to tweak it; new block types fall back to "place" automatically.
+//   "paint" = click a cell, then build a rectangle just like dropping does.
+//   "place" = drop a single block (no rectangle), and stay armed for the next.
+//   "both"  = single-place by default; hold SHIFT to paint a rectangle instead.
+const PLACEMENT_MODES = {
+  terrain:    "paint",   // ground, platforms, blocks, spikes/lava
+  background: "paint",   // sky / backdrops
+  items:      "both",    // coins, flags, gems
+  decoration: "place",   // signs, bushes, clouds, props
+  foes:       "place",   // enemies
+  player:     "place",   // the hero spawn
+};
+function placementModeFor(id) {
+  return PLACEMENT_MODES[(ASSET[id] && ASSET[id].layer)] || "place";
+}
+
+// Throw away the armed preview tile (e.g. when we disarm or start dragging).
+function clearArmedGhost() {
+  if (armedGhost) { destroy(armedGhost); armedGhost = null; }
+}
+
 // When a tile is turned 90° or 270°, its width and height swap (a tall tile lies
 // down). This returns the [width, height] a tile actually takes up at an angle,
 // so snapping and painting still line things up. (At 0°/180° nothing changes.)
@@ -680,11 +714,19 @@ ui.onDraw(() => {
     if (c.y + c.h < listTop() || c.y > listEnd) continue; // off-screen, skip
 
     const hot = inRect(mx, my, c) && my > listTop() && my < listEnd;
+    const isArmed = c.id === armed;
+    // The armed block gets a bright green halo so you can see it's "picked up".
+    if (isArmed) {
+      drawRect({
+        pos: vec2(c.x - 3, c.y - 3), width: c.w + 6, height: c.h + 6, radius: 7,
+        color: rgb(90, 220, 120),
+      });
+    }
     // Light thumbnail cells so the dark OUTLINES of blocks (stone, castle, etc.)
     // stand out instead of blending into the dark drawer. Hovering brightens it.
     drawRect({
       pos: vec2(c.x, c.y), width: c.w, height: c.h, radius: 5,
-      color: hot ? rgb(255, 255, 255) : rgb(214, 221, 232),
+      color: isArmed ? rgb(255, 255, 255) : (hot ? rgb(255, 255, 255) : rgb(214, 221, 232)),
     });
 
     // Fit the sprite inside the cell, keeping its shape (no squishing).
@@ -1000,13 +1042,41 @@ onMousePress("left", () => {
       saveLevel();
       return;
     }
-    // A thumbnail? (only if it's within the visible list area)
+    // A thumbnail? (only if it's within the visible list area). We DON'T act
+    // yet — we remember the press and wait. If the mouse then moves, it's a
+    // drag (the old drag-and-drop, started in onUpdate). If it's released on
+    // the spot, it's a click and we "arm" that block (see onMouseRelease).
     if (m.y > listTop() && m.y < listBottom()) {
       for (const c of cellRects()) {
-        if (inRect(m.x, m.y, c)) { startNewDrag(c.id); return; }
+        if (inRect(m.x, m.y, c)) { pressThumb = { id: c.id, start: m.clone() }; return; }
       }
     }
     return; // clicked drawer background — do nothing
+  }
+
+  // --- ARMED: a world click drops the armed block where you clicked. ---
+  // (This sits BEFORE the move/pan code below, so while a block is armed a
+  // click always places it — to move tiles or pan, disarm first with Escape
+  // or by clicking the lit-up block in the drawer again.)
+  if (armed && m.x >= DRAWER_W) {
+    let mode = placementModeFor(armed);
+    // "both" blocks (like coins) place one at a time; hold Shift to paint a row.
+    if (mode === "both") mode = isKeyDown("shift") ? "paint" : "place";
+
+    const [pw, ph] = effSize(ASSET[armed].w, ASSET[armed].h, brushAngle);
+    const wpt = toWorld(m);
+    const s = snapPosition(wpt.x - pw / 2, wpt.y - ph / 2, pw, ph, null);
+
+    if (mode === "paint") {
+      // Same rectangle-paint you get from dropping: move, then click to fill.
+      clearArmedGhost();
+      startPaint(armed, s.x, s.y);
+    } else {
+      // A single, discrete drop — stay armed so you can place more.
+      placed.push(makeTile(armed, s.x, s.y, brushAngle, brushFlipX, brushFlipY));
+      saveLevel();
+    }
+    return;
   }
 
   // --- We clicked on the world. ---
@@ -1056,6 +1126,15 @@ onMousePress("right", () => {
 // ----------------------------------------------------------------------------
 onMouseRelease("left", () => {
   panning = false;
+
+  // A thumbnail press that never moved into a drag = a click = arm that block
+  // (or disarm it if it was already the armed one).
+  if (pressThumb) {
+    armed = (armed === pressThumb.id) ? null : pressThumb.id;
+    pressThumb = null;
+    clearArmedGhost();
+    return;
+  }
 
   if (!drag) return;
   const overDrawer = mousePos().x < DRAWER_W;
@@ -1168,6 +1247,20 @@ function flipBrush(axis) {
 onKeyPress("x", () => flipBrush("x"));
 onKeyPress("y", () => flipBrush("y"));
 
+// ESCAPE — back out of whatever you're doing: cancel a paint, drop a drag, and
+// un-arm the drawer block. A handy "never mind" key.
+onKeyPress("escape", () => {
+  if (paint) cancelPaint();
+  if (drag) {
+    destroy(drag.obj);
+    if (drag.mode === "move") removeFromPlaced(drag.obj);
+    drag = null;
+  }
+  armed = null;
+  pressThumb = null;
+  clearArmedGhost();
+});
+
 
 // ----------------------------------------------------------------------------
 //  LAYER NUDGE  —  press [ (send back) or ] (bring forward) over a tile
@@ -1206,6 +1299,17 @@ onUpdate(() => {
 
   setCamPos(cam);
 
+  // Pressed a thumbnail and now dragging it out? Turn it into the old
+  // drag-and-drop. (Releasing without moving this far arms it instead.)
+  if (pressThumb && isMouseDown("left") &&
+      mousePos().dist(pressThumb.start) > CLICK_DIST) {
+    const id = pressThumb.id;
+    pressThumb = null;
+    armed = null;                        // dragging takes over from arming
+    clearArmedGhost();
+    startNewDrag(id);
+  }
+
   // If we're dragging a sprite, snap its ghost to the nicest spot under mouse.
   if (drag) {
     const [dw, dh] = effSize(drag.w, drag.h, drag.obj.spriteAngle); // turned tiles swap w/h
@@ -1213,6 +1317,25 @@ onUpdate(() => {
     const tx = w.x - dw / 2;             // mouse points at the tile's CENTER
     const ty = w.y - dh / 2;
     drag.obj.pos = snapPosition(tx, ty, dw, dh, drag.obj);
+  }
+
+  // While a block is armed (and we're not dragging or painting), show a faded
+  // preview of it snapped under the cursor, so you can see where it'll drop.
+  if (armed && !drag && !paint && mousePos().x >= DRAWER_W) {
+    if (!armedGhost || armedGhost.spriteId !== armed) {
+      clearArmedGhost();
+      armedGhost = makeTile(armed, 0, 0, brushAngle, brushFlipX, brushFlipY);
+      armedGhost.z = DRAG_Z;
+    }
+    armedGhost.drawOpacity = 0.5;
+    armedGhost.spriteAngle = brushAngle;
+    armedGhost.flipX = brushFlipX;
+    armedGhost.flipY = brushFlipY;
+    const [gw, gh] = effSize(ASSET[armed].w, ASSET[armed].h, brushAngle);
+    const w = toWorld(mousePos());
+    armedGhost.pos = snapPosition(w.x - gw / 2, w.y - gh / 2, gw, gh, null);
+  } else if (armedGhost) {
+    clearArmedGhost();
   }
 
   // If we're painting, preview the rectangle of faded tiles under the mouse.
