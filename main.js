@@ -421,6 +421,41 @@ function buildDesignLevel(design) {
 
 
 // ----------------------------------------------------------------------------
+//  TOUCH INPUT  —  the on-screen buttons (phones + tablets)
+// ----------------------------------------------------------------------------
+//  index.html draws three buttons (◀ ▶ JUMP) that only show up on touch screens.
+//  Here we listen to them and remember what's being pressed in `touchInput`. The
+//  game scene (below) reads this every frame, exactly like it reads the keyboard.
+//
+//  Two things worth knowing:
+//   • We use POINTER events, which cover finger, pen AND mouse with ONE set of
+//     code — so we never write touch and mouse handling twice.
+//   • We wire the buttons up HERE, OUTSIDE the scene, on purpose. Pressing "R"
+//     re-runs the scene; if we added these listeners in there, every restart
+//     would stack another copy on the same button. Out here they're added once.
+const touchInput = { left: false, right: false, jump: false };
+
+// Make a button set `touchInput[key]` true while held and false when let go.
+function holdButton(id, key) {
+  const el = document.getElementById(id);
+  if (!el) return;                                  // button not on the page? skip
+  const set = (v) => (e) => { e.preventDefault(); touchInput[key] = v; };
+  el.addEventListener("pointerdown",   set(true));
+  el.addEventListener("pointerup",     set(false));
+  el.addEventListener("pointercancel", set(false));
+  el.addEventListener("pointerleave",  set(false)); // finger slid off the button
+}
+holdButton("btn-left",  "left");
+holdButton("btn-right", "right");
+
+// JUMP is a one-shot (like tapping Space once), so we only react to press-down.
+const jumpBtn = document.getElementById("btn-jump");
+if (jumpBtn) {
+  jumpBtn.addEventListener("pointerdown", (e) => { e.preventDefault(); touchInput.jump = true; });
+}
+
+
+// ----------------------------------------------------------------------------
 //  THE GAME  —  everything below lives in a "scene" called "game".
 //  Putting it in a scene means pressing R can restart it cleanly (see bottom).
 // ----------------------------------------------------------------------------
@@ -549,6 +584,14 @@ function tryJump() {
 onKeyPress("space", tryJump);  // onKeyPress runs ONCE each time you press.
 onKeyPress("up",    tryJump);
 onKeyPress("w",     tryJump);
+
+// The same moves, but from the on-screen TOUCH buttons (see touchInput, above).
+// We check this every frame: hold ◀/▶ to run, and a JUMP tap fires once.
+onUpdate(() => {
+  if (touchInput.left)  { player.move(-PLAYER_SPEED, 0); player.flipX = true;  }
+  if (touchInput.right) { player.move( PLAYER_SPEED, 0); player.flipX = false; }
+  if (touchInput.jump)  { touchInput.jump = false; tryJump(); }   // consume the tap
+});
 
 
 // ----------------------------------------------------------------------------

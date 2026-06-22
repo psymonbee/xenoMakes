@@ -19,9 +19,59 @@
       image-rendering: pixelated; /* keep sprites crisp, not blurry */
       display: block;             /* remove the tiny gap under the canvas */
     }
+
+    /* --- ON-SCREEN TOUCH CONTROLS (phones + tablets) -------------------------
+       These three buttons let you play with your thumbs. They're HIDDEN by
+       default and only appear on touch screens (no mouse) — see the @media rule
+       below. main.js wires them to the same move/jump the keyboard uses. */
+    #touch-controls { display: none; }
+    @media (hover: none) and (pointer: coarse) {
+      #touch-controls { display: flex; }
+    }
+    #touch-controls {
+      position: fixed;
+      left: 0; right: 0; bottom: 0;          /* pinned along the bottom edge */
+      justify-content: space-between;        /* run buttons left, jump right */
+      align-items: flex-end;
+      padding: 24px;
+      /* keep clear of the iPhone home-bar / rounded corners */
+      padding-bottom: calc(24px + env(safe-area-inset-bottom));
+      pointer-events: none;                  /* gaps let taps fall through */
+      z-index: 10;                           /* float above the game canvas */
+    }
+    .pad { display: flex; gap: 18px; }       /* the ◀ ▶ pair on the left */
+    .tbtn {
+      pointer-events: auto;                  /* ...but the buttons ARE tappable */
+      width: 84px; height: 84px;
+      border-radius: 50%;
+      border: none;
+      background: rgba(255, 255, 255, 0.30);
+      color: #fff;
+      font-size: 34px; font-weight: bold;
+      display: flex; align-items: center; justify-content: center;
+      -webkit-user-select: none; user-select: none;
+      touch-action: none;                    /* we handle touches; no page scroll */
+      -webkit-tap-highlight-color: transparent;
+    }
+    .tbtn:active { background: rgba(255, 255, 255, 0.55); }  /* press feedback */
+    .tbtn.jump {
+      width: 110px; height: 110px;           /* the jump button is the big one */
+      font-size: 22px;
+      background: rgba(90, 200, 120, 0.45);
+    }
   </style>
 </head>
 <body>
+  <!-- On-screen controls for touch screens (hidden on computers with a mouse).
+       main.js looks these up by id and makes them move/jump the player. -->
+  <div id="touch-controls" aria-hidden="true">
+    <div class="pad">
+      <button id="btn-left"  class="tbtn" type="button">◀</button>
+      <button id="btn-right" class="tbtn" type="button">▶</button>
+    </div>
+    <button id="btn-jump" class="tbtn jump" type="button">JUMP</button>
+  </div>
+
   <!--
     1) Load the Kaplay game library from a CDN (no install needed).
        Version is pinned to 3001.0.19 so the game keeps working the same way.

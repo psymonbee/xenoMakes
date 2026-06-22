@@ -72,6 +72,36 @@ function canManage(level) {
 
 
 // ----------------------------------------------------------------------------
+//  PHONE STEER  —  the builder works best on a big screen
+// ----------------------------------------------------------------------------
+//  The level designer is a drag-and-drop tool: it needs room and precision, so
+//  it's a pain on a small phone. We don't BLOCK phones — we just give a friendly
+//  heads-up and let you carry on if you really want to. Playing + browsing
+//  levels works great on a phone, so those are never gated.
+//
+//  How we spot a "phone": a touch screen ("coarse" pointer) AND a small screen.
+//  We measure the SHORTER side so it works in portrait or landscape — an iPad's
+//  short side is ~768+, a phone's is ~430 or less, so iPads sail through.
+function isPhoneScreen() {
+  const coarse = window.matchMedia("(pointer: coarse)").matches;
+  const small  = Math.min(window.innerWidth, window.innerHeight) < 700;
+  return coarse && small;
+}
+
+// Go to the editor — but on a phone, ask first (the "soft steer").
+function openEditor(url) {
+  if (isPhoneScreen()) {
+    const ok = confirm(
+      "The level builder works best on an iPad or a computer — it needs a " +
+      "bigger screen and is fiddly to use with a finger.\n\nOpen it anyway?"
+    );
+    if (!ok) return;            // they changed their mind — stay on the home page
+  }
+  window.location.href = url;
+}
+
+
+// ----------------------------------------------------------------------------
 //  THE "NEW LEVEL" BUTTONS
 // ----------------------------------------------------------------------------
 //  We make the level HERE (so we can stamp its section) and then open the editor
@@ -80,12 +110,12 @@ function canManage(level) {
 document.getElementById("newBtn").addEventListener("click", async () => {
   const lvl = window.Levels.create(window.Levels.suggestName(), 0, { section: "community" });
   await window.Levels.flush();            // make sure it's saved BEFORE we leave
-  window.location.href = "editor?level=" + lvl.id;
+  openEditor("editor?level=" + lvl.id);
 });
 document.getElementById("newMainBtn").addEventListener("click", async () => {
   const lvl = window.Levels.create(window.Levels.suggestName(), 0, { section: "main" });
   await window.Levels.flush();
-  window.location.href = "editor?level=" + lvl.id;
+  openEditor("editor?level=" + lvl.id);
 });
 
 
@@ -215,7 +245,7 @@ function makeCard(level) {
   thumb.title = hasTiles ? ("Play " + level.name) : ("Build " + level.name);
   thumb.addEventListener("click", () => {
     if (hasTiles) play(level.id);
-    else window.location.href = "editor?level=" + level.id;
+    else openEditor("editor?level=" + level.id);
   });
 
   const canvas = document.createElement("canvas");
@@ -292,7 +322,7 @@ function makeCard(level) {
     const editBtn = document.createElement("button");
     editBtn.className = "btn small grey";
     editBtn.textContent = "✏️ Edit";
-    editBtn.addEventListener("click", () => { window.location.href = "editor?level=" + level.id; });
+    editBtn.addEventListener("click", () => { openEditor("editor?level=" + level.id); });
 
     const delBtn = document.createElement("button");
     delBtn.className = "btn small danger";
