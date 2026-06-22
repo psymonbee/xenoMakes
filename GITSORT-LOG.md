@@ -13,6 +13,24 @@ Newest entries are at the top.
 
 ---
 
+## 2026-06-22 10:21 — ✅ Merged cleanly · ⏳ push waiting on Simon's OK
+- Saved Zac's work FIRST: 2 files committed (f15788c) — interactive springs,
+  "?" coin blocks (head-bump for a coin), levers, buttons, and doors that a
+  lever/button opens. Verified all of it working in the browser before syncing.
+- GitHub had moved a lot: Zac was **1 ahead, 7 behind**. Both sides had new work.
+- Laid down a backup rope, then `git merge origin/main` → **auto-merged with NO
+  conflicts** (main.js + palette.js combined automatically). Merge commit 7d6ce30.
+- Double-checked after merging: all files parse, the game boots, and Zac's new
+  roles (spring/coinblock/lever/button/door) all survived intact. Looks healthy.
+- ⚠️ Could NOT push: the assistant's safety guard blocks pushing straight to
+  `main` without an explicit go-ahead. **Nothing is lost** — the full merge is
+  committed locally and just needs to be sent up. Simon (or Zac with approval):
+  `git push origin main`
+- Backup rope: branch `backup/before-sync-2026-06-22-1021`
+  (auto-merges can look clean but still break the game — roll back here if needed:
+   `git reset --hard backup/before-sync-2026-06-22-1021`, then re-push carefully)
+- State: local `main` = 7d6ce30 (merged) · `origin/main` = 252b94f (not yet updated)
+
 ## 2026-06-22 01:05 — ✅ Synced fine
 - Saved Zac's work: 1 file committed (b3c9af4) — pinned the in-app preview to
   port 8080 (`.claude/launch.json`) so it shares one localStorage box with
