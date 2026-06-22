@@ -13,6 +13,24 @@ Newest entries are at the top.
 
 ---
 
+## 2026-06-22 20:01 — ✅ Big integration synced to main
+- Untangled the two diverged `main`s safely (no guessing, nothing lost):
+  - Backed up the old local `main` to branch `backup/local-main-pre-sync-2026-06-22-1947`
+    (pushed to GitHub) — it holds Simon's never-pushed `f15788c` "interactive springs,
+    ? coin blocks, levers, buttons, doors" exactly as it was.
+  - Built a fresh integration on top of GitHub's `main` (Zac's `d25dc12`: lower jump,
+    owner login, Main/Community sections, difficulty badges), then:
+    • folded in the editor branch (click-to-place + the foe-path-selection fix),
+    • re-targeted the interaction set to the Standard (new) pack as a growing library
+      (palette.js INTERACTIONS table + window.COMPANION; richer engine in main.js),
+    • dropped Zac's simpler spring in favour of the shared one (his other work kept).
+  - Fast-forwarded `main` on GitHub to the result (a1b74d3 → 217336e). Verified in a
+    local browser: every interactive tile builds with correct art/coin; no JS errors.
+    (Live bounce/door feel still wants a real play-test.)
+- Tidied LOCAL branches (merged editor + temp integration branch deleted). The REMOTE
+  feature branch `claude/click-place-paint-editor-yfaddd` was left in place pending an OK.
+- Ropes kept: `backup/local-main-pre-sync-2026-06-22-1947`, `backup/before-sync-2026-06-22-1021`.
+
 ## 2026-06-22 — ✅ Synced fine (sent Zac's work up)
 - Saved Zac's work: 5 files committed (d25dc12) — bouncy springs, lower jump (1000→750),
   owner login, Main/Community home-page sections + difficulty badges
