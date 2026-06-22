@@ -1,28 +1,78 @@
 // ============================================================================
-//  HOME PAGE  —  show every saved level as a clickable card
+//  HOME PAGE  —  show every saved level as a clickable card, in two sections
 // ============================================================================
 //  This is the front door to the game. It reads the list of levels from the
-//  shared "save box" (levels.js) and, for each one, makes a CARD with:
-//    • a little screenshot of the start of the level (drawn onto a <canvas>),
-//    • a ▶ play button over the picture (click it to play),
-//    • the level's name, and Edit + Delete buttons.
+//  shared "save box" (levels.js) and sorts them into two sections:
+//    • ⭐ Main Levels      — the owner's official levels
+//    • 🌍 Community Levels — levels anyone has published
 //
-//  The pictures are drawn here, on the fly, straight from each level's saved
-//  tiles — so they're always up to date and take up no extra storage.
+//  Each card has a little screenshot (drawn onto a <canvas> from the saved
+//  tiles), the level's name, a coloured DIFFICULTY badge, and — when you're
+//  allowed to manage it — Settings / Edit / Delete buttons.
+//
+//  The "🔒 Owner" button unlocks OWNER MODE (see just below).
 // ============================================================================
 
 
-// Where the cards go, and the "you have no levels" note.
-const grid     = document.getElementById("grid");
-const emptyMsg = document.getElementById("empty");
+// ----------------------------------------------------------------------------
+//  OWNER MODE  —  a simple "pretend lock"
+// ----------------------------------------------------------------------------
+//  Type the owner word to unlock the owner-only buttons (make Main levels, and
+//  Edit/Delete/Settings on Main levels). It's saved in this browser only.
+//
+//  ⚠️ IMPORTANT: this is NOT real security. The word is right here in the code,
+//  so anyone curious could find it. It just keeps players from *accidentally*
+//  changing the official levels. To change it, edit OWNER_WORD below.
+const OWNER_WORD = "coinquest";
+const OWNER_KEY  = "coinquest-owner";
+function isOwner()      { return localStorage.getItem(OWNER_KEY) === "yes"; }
+function setOwner(on)   { localStorage.setItem(OWNER_KEY, on ? "yes" : "no"); }
 
-// "New blank level" opens the editor on a fresh, empty level.
-// NOTE: we link to "editor?new=1" (no ".html"). Our local server (serve) sends
-// "editor.html?…" through a redirect that DROPS the "?…" part, but the clean
-// "editor?…" form keeps it — so the editor actually sees "new=1".
-document.getElementById("newBtn").addEventListener("click", () => {
-  window.location.href = "editor?new=1";
+const ownerBtn = document.getElementById("ownerBtn");
+
+// Update the owner button's look + show/hide the owner-only buttons.
+function refreshOwnerUI() {
+  const owner = isOwner();
+  ownerBtn.textContent = owner ? "🔓 Owner (log out)" : "🔒 Owner";
+  ownerBtn.classList.toggle("on", owner);
+  // Show owner-only bits (the "New main level" button, the modal's Section pick).
+  document.querySelectorAll(".owner-only").forEach((el) => el.classList.toggle("hide", !owner));
+}
+
+ownerBtn.addEventListener("click", () => {
+  if (isOwner()) {
+    setOwner(false);                      // log out
+  } else {
+    const word = prompt("Enter the owner word to unlock owner mode:");
+    if (word === null) return;            // they pressed Cancel
+    if (word !== OWNER_WORD) { alert("That's not the owner word. Try again!"); return; }
+    setOwner(true);
+  }
+  refreshOwnerUI();
+  render();
 });
+
+// "Can I change this level's name/difficulty/order, edit it, or delete it?"
+//  • Community levels: yes, anyone can (they live on this computer).
+//  • Main levels: only the owner can.
+function canManage(level) { return level.section !== "main" || isOwner(); }
+
+
+// ----------------------------------------------------------------------------
+//  THE "NEW LEVEL" BUTTONS
+// ----------------------------------------------------------------------------
+//  We make the level HERE (so we can stamp its section) and then open the editor
+//  on it by id. We link with "editor?level=…" (no ".html"): our local server
+//  drops the "?…" off a ".html" link, but keeps it on the clean "editor?…" form.
+document.getElementById("newBtn").addEventListener("click", () => {
+  const lvl = window.Levels.create(window.Levels.suggestName(), 0, { section: "community" });
+  window.location.href = "editor?level=" + lvl.id;
+});
+document.getElementById("newMainBtn").addEventListener("click", () => {
+  const lvl = window.Levels.create(window.Levels.suggestName(), 0, { section: "main" });
+  window.location.href = "editor?level=" + lvl.id;
+});
+
 
 // Pictures we've loaded, kept so we don't fetch the same sprite twice.
 const imgCache = {};
@@ -144,7 +194,7 @@ function makeCard(level) {
   const hasTiles = (level.tiles || []).length > 0;
 
   // The picture area (canvas) + the ▶ play overlay. Clicking it plays the level —
-  // unless the level is still empty, in which case it opens the editor to build it.
+  // unless it's still empty, in which case it opens the editor to build it.
   const thumb = document.createElement("div");
   thumb.className = "thumb";
   thumb.title = hasTiles ? ("Play " + level.name) : ("Build " + level.name);
@@ -165,11 +215,11 @@ function makeCard(level) {
   } else {
     const tag = document.createElement("div");
     tag.className = "emptytag";
-    tag.textContent = "Empty — click Edit to build";
+    tag.textContent = "Empty — click to build";
     thumb.appendChild(tag);
   }
 
-  // The strip under the picture: the name + Edit / Delete buttons.
+  // The strip under the picture: name, difficulty badge, then (maybe) buttons.
   const info = document.createElement("div");
   info.className = "info";
 
@@ -178,27 +228,44 @@ function makeCard(level) {
   name.textContent = level.name;
   info.appendChild(name);
 
-  const row = document.createElement("div");
-  row.className = "row";
+  // The coloured difficulty badge (Easy / Medium / Hard / Unrated).
+  const badge = document.createElement("span");
+  badge.className = "badge" + (level.difficulty ? " " + level.difficulty : "");
+  badge.textContent = level.difficulty ? capitalize(level.difficulty) : "Unrated";
+  info.appendChild(badge);
 
-  const editBtn = document.createElement("button");
-  editBtn.className = "btn small grey";
-  editBtn.textContent = "✏️ Edit";
-  editBtn.addEventListener("click", () => { window.location.href = "editor?level=" + level.id; });
+  // The manage buttons — only if you're allowed to manage this level.
+  if (canManage(level)) {
+    const setBtn = document.createElement("button");
+    setBtn.className = "btn small grey";
+    setBtn.style.width = "100%";
+    setBtn.style.marginTop = "10px";
+    setBtn.textContent = "⚙️ Settings";
+    setBtn.addEventListener("click", () => openSettings(level));
+    info.appendChild(setBtn);
 
-  const delBtn = document.createElement("button");
-  delBtn.className = "btn small danger";
-  delBtn.textContent = "🗑 Delete";
-  delBtn.addEventListener("click", () => {
-    if (confirm('Delete "' + level.name + '"? This cannot be undone.')) {
-      window.Levels.remove(level.id);
-      render();                                  // rebuild the gallery
-    }
-  });
+    const row = document.createElement("div");
+    row.className = "row";
 
-  row.appendChild(editBtn);
-  row.appendChild(delBtn);
-  info.appendChild(row);
+    const editBtn = document.createElement("button");
+    editBtn.className = "btn small grey";
+    editBtn.textContent = "✏️ Edit";
+    editBtn.addEventListener("click", () => { window.location.href = "editor?level=" + level.id; });
+
+    const delBtn = document.createElement("button");
+    delBtn.className = "btn small danger";
+    delBtn.textContent = "🗑 Delete";
+    delBtn.addEventListener("click", () => {
+      if (confirm('Delete "' + level.name + '"? This cannot be undone.')) {
+        window.Levels.remove(level.id);
+        render();                                  // rebuild the gallery
+      }
+    });
+
+    row.appendChild(editBtn);
+    row.appendChild(delBtn);
+    info.appendChild(row);
+  }
 
   card.appendChild(thumb);
   card.appendChild(info);
@@ -208,29 +275,107 @@ function makeCard(level) {
   return card;
 }
 
+// "easy" -> "Easy"
+function capitalize(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
+
 // Open the game on a level. "./?play=…" points at the game (index) and, because
 // "/" is the server's canonical address, the "?play=…" part survives the trip.
 function play(id) { window.location.href = "./?play=" + id; }
 
 
 // ----------------------------------------------------------------------------
-//  RENDER  —  (re)build the whole gallery from the saved levels
+//  THE SETTINGS DIALOG  —  set name / difficulty / order (owner: + section)
 // ----------------------------------------------------------------------------
-function render() {
-  const levels = window.Levels.all();
-  grid.innerHTML = "";
+let editingId = null;     // which level the open dialog is editing
 
-  if (levels.length === 0) {
-    emptyMsg.classList.remove("hide");
+const backdrop = document.getElementById("settingsBackdrop");
+const fName    = document.getElementById("setName");
+const fDiff    = document.getElementById("setDifficulty");
+const fOrder   = document.getElementById("setOrder");
+const fSection = document.getElementById("setSection");
+
+function openSettings(level) {
+  editingId = level.id;
+  fName.value    = level.name || "";
+  fDiff.value    = level.difficulty || "";          // "" = Unrated
+  fOrder.value   = level.order;
+  fSection.value = level.section === "main" ? "main" : "community";
+  // Only the owner gets to choose the section.
+  document.getElementById("sectionField").classList.toggle("hide", !isOwner());
+  backdrop.classList.remove("hide");
+  fName.focus();
+}
+
+function closeSettings() {
+  editingId = null;
+  backdrop.classList.add("hide");
+}
+
+document.getElementById("setCancel").addEventListener("click", closeSettings);
+
+// Click the dark area outside the dialog to cancel.
+backdrop.addEventListener("click", (e) => { if (e.target === backdrop) closeSettings(); });
+
+document.getElementById("setSave").addEventListener("click", () => {
+  const lvl = window.Levels.get(editingId);
+  if (!lvl) { closeSettings(); return; }
+
+  const newName = fName.value.trim();
+  if (newName) lvl.name = newName;
+
+  const diff = fDiff.value;
+  lvl.difficulty = window.Levels.DIFFICULTIES.includes(diff) ? diff : null;
+
+  const ord = parseInt(fOrder.value, 10);
+  if (!isNaN(ord)) lvl.order = ord;
+
+  // Only the owner may move a level between sections.
+  if (isOwner()) lvl.section = (fSection.value === "main") ? "main" : "community";
+
+  window.Levels.put(lvl);
+  closeSettings();
+  render();
+});
+
+
+// ----------------------------------------------------------------------------
+//  RENDER  —  (re)build both sections from the saved levels
+// ----------------------------------------------------------------------------
+// Sort by "order" (smaller = first), then by when it was made as a tie-breaker.
+function byOrder(a, b) { return (a.order || 0) - (b.order || 0) || (a.created || 0) - (b.created || 0); }
+
+// Fill one section's grid, or show a friendly placeholder if it's empty.
+function fillGrid(grid, list, emptyText) {
+  grid.innerHTML = "";
+  if (list.length === 0) {
+    const ph = document.createElement("div");
+    ph.className = "placeholder";
+    ph.textContent = emptyText;
+    grid.appendChild(ph);
     return;
   }
-  emptyMsg.classList.add("hide");
+  for (const lvl of list) grid.appendChild(makeCard(lvl));
+}
+
+function render() {
+  refreshOwnerUI();                       // keep the header buttons in sync
+
+  const levels = window.Levels.all();
+  const empty = document.getElementById("empty");
+  empty.classList.toggle("hide", levels.length !== 0);
 
   // Make sure all the sprite pictures are loaded, THEN draw the cards.
   loadAllImages(levels).then(() => {
-    grid.innerHTML = "";
-    for (const lvl of levels) grid.appendChild(makeCard(lvl));
+    const mains     = levels.filter((l) => l.section === "main").sort(byOrder);
+    const community = levels.filter((l) => l.section !== "main").sort(byOrder);
+
+    fillGrid(document.getElementById("mainGrid"), mains,
+      isOwner() ? "No main levels yet. Click ⭐ New main level to add one."
+                : "No main levels yet.");
+    fillGrid(document.getElementById("communityGrid"), community,
+      "No community levels yet. Click ➕ New level to add one.");
   });
 }
 
+refreshOwnerUI();
 render();

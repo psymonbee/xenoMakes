@@ -6,9 +6,12 @@
   <title>Coin Quest — My Levels</title>
   <style>
     /* -------------------------------------------------------------------------
-       THE HOME PAGE  —  a gallery of every level you've made.
+       THE HOME PAGE  —  a gallery of every level, split into two sections:
+         ⭐ Main Levels      — the owner's official game levels
+         🌍 Community Levels — levels anyone has published
        Plain HTML + CSS (no game engine needed here). The level pictures are
        drawn onto little <canvas> cards by home.js from each level's saved tiles.
+       The "Owner" button unlocks the owner-only buttons (see home.js).
     ------------------------------------------------------------------------- */
     :root {
       --bg1: #1b2740;            /* page background, top    */
@@ -19,6 +22,11 @@
       --accent-bright: #5fd089;
       --ink: #ffffff;
       --ink-dim: #9fb2d0;
+      /* difficulty badge colours */
+      --easy: #46b06a;
+      --medium: #e0922f;
+      --hard: #c0464a;
+      --unrated: #5a6e93;
     }
 
     * { box-sizing: border-box; }
@@ -31,7 +39,7 @@
       background: linear-gradient(160deg, var(--bg1), var(--bg2));
     }
 
-    /* The bar across the top: the title + the big "new level" button. */
+    /* The bar across the top: the title + the buttons. */
     header {
       display: flex;
       align-items: center;
@@ -43,8 +51,9 @@
     header h1 { margin: 0; font-size: clamp(24px, 4vw, 34px); }
     header h1 .coin { filter: drop-shadow(0 2px 4px rgba(0,0,0,.4)); }
     header p { margin: 4px 0 0; color: var(--ink-dim); font-size: 15px; }
+    .header-buttons { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
 
-    /* The green "New blank level" button (and the same style for card buttons). */
+    /* The green buttons (and the same style for card buttons). */
     .btn {
       border: none;
       border-radius: 12px;
@@ -64,13 +73,38 @@
     .btn.grey:hover { background: #51699f; }
     .btn.danger { background: #b0464a; box-shadow: none; }
     .btn.danger:hover { background: #cc5559; }
+    /* The owner lock button: gold when locked, brighter when you're the owner. */
+    .btn.lock  { background: #6b5a2f; box-shadow: none; }
+    .btn.lock:hover { background: #897439; }
+    .btn.lock.on { background: #c89b3c; }
+    .btn.lock.on:hover { background: #ddb04c; }
 
-    /* The grid that holds all the level cards. */
-    #grid {
+    /* A SECTION (Main / Community): a heading, then its grid of cards. */
+    .section { padding: 0 clamp(16px, 4vw, 48px); }
+    .section h2 {
+      font-size: 22px;
+      margin: 26px 0 6px;
+      display: flex; align-items: center; gap: 10px;
+    }
+    .section .sub { margin: 0 0 14px; color: var(--ink-dim); font-size: 14px; }
+
+    /* The grid that holds a section's level cards. */
+    .grid {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
       gap: 22px;
-      padding: 8px clamp(16px, 4vw, 48px) 60px;
+      padding-bottom: 18px;
+    }
+
+    /* The "nothing here yet" placeholder card for an empty section. */
+    .placeholder {
+      grid-column: 1 / -1;
+      border: 2px dashed var(--card-edge);
+      border-radius: 16px;
+      padding: 34px 20px;
+      text-align: center;
+      color: var(--ink-dim);
+      font-size: 16px;
     }
 
     /* ONE level card. The glow is the box-shadow; hover lifts it higher. */
@@ -85,7 +119,6 @@
     .card:hover {
       transform: translateY(-6px);
       border-color: #6ea0ff;
-      /* a soft blue glow so the card lifts off the page */
       box-shadow: 0 16px 34px rgba(0, 0, 0, .45), 0 0 22px rgba(110, 160, 255, .55);
     }
 
@@ -126,21 +159,68 @@
       color: #2b3d5e; font-weight: bold; font-size: 18px; pointer-events: none;
     }
 
-    /* The strip under the picture: the name + edit/delete buttons. */
+    /* The strip under the picture: name, difficulty badge, then buttons. */
     .card .info { padding: 12px 14px 14px; }
-    .card .name { font-size: 18px; font-weight: bold; margin: 0 0 10px; word-break: break-word; }
-    .card .row { display: flex; gap: 8px; }
+    .card .name { font-size: 18px; font-weight: bold; margin: 0 0 8px; word-break: break-word; }
+    .card .row { display: flex; gap: 8px; margin-top: 10px; }
     .card .row .btn { flex: 1; }
 
-    /* The friendly message shown when you have no levels yet. */
+    /* The coloured difficulty badge (Easy / Medium / Hard / Unrated). */
+    .badge {
+      display: inline-block;
+      padding: 3px 10px;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: bold;
+      color: #fff;
+      background: var(--unrated);
+    }
+    .badge.easy   { background: var(--easy); }
+    .badge.medium { background: var(--medium); }
+    .badge.hard   { background: var(--hard); }
+
+    /* The friendly message shown when you have NO levels at all. */
     #empty {
       text-align: center;
       color: var(--ink-dim);
-      padding: 60px 20px;
+      padding: 40px 20px;
       font-size: 18px;
       line-height: 1.6;
     }
     #empty.hide { display: none; }
+
+    /* ---- The Settings dialog (a pop-up over a dark backdrop) ---- */
+    .modal-backdrop {
+      position: fixed; inset: 0;
+      background: rgba(6, 10, 20, .72);
+      display: flex; align-items: center; justify-content: center;
+      padding: 20px; z-index: 50;
+    }
+    .modal-backdrop.hide { display: none; }
+    .modal {
+      background: var(--card);
+      border: 1px solid var(--card-edge);
+      border-radius: 16px;
+      width: min(420px, 100%);
+      padding: 22px 22px 18px;
+      box-shadow: 0 18px 50px rgba(0,0,0,.6);
+    }
+    .modal h3 { margin: 0 0 16px; font-size: 22px; }
+    .modal label { display: block; margin: 14px 0 6px; font-weight: bold; font-size: 14px; color: var(--ink-dim); }
+    .modal input, .modal select {
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: 10px;
+      border: 1px solid var(--card-edge);
+      background: #1a2740;
+      color: var(--ink);
+      font-size: 15px;
+      font-family: inherit;
+    }
+    .modal .hint { font-size: 12px; color: var(--ink-dim); margin: 6px 0 0; }
+    .modal .modal-row { display: flex; gap: 10px; margin-top: 22px; }
+    .modal .modal-row .btn { flex: 1; }
+    .owner-only.hide { display: none; }
   </style>
 </head>
 <body>
@@ -149,17 +229,70 @@
       <h1><span class="coin">🪙</span> Coin Quest — My Levels</h1>
       <p>Pick a level to play or edit, or start a brand-new one.</p>
     </div>
-    <button class="btn" id="newBtn">➕ New blank level</button>
+    <div class="header-buttons">
+      <!-- Lock button: click to become the owner (or to log out). home.js fills in
+           its label and the "on" class depending on whether you're logged in. -->
+      <button class="btn lock" id="ownerBtn">🔒 Owner</button>
+      <!-- "New main level" only shows for the owner (home.js toggles it). -->
+      <button class="btn owner-only hide" id="newMainBtn">⭐ New main level</button>
+      <button class="btn" id="newBtn">➕ New level</button>
+    </div>
   </header>
 
-  <!-- Shown only when there are no saved levels yet. -->
+  <!-- Shown only when there are NO saved levels at all. -->
   <div id="empty" class="hide">
     You haven't made any levels yet.<br />
-    Click <b>➕ New blank level</b> to start building!
+    Click <b>➕ New level</b> to start building!
   </div>
 
-  <!-- home.js fills this with one card per saved level. -->
-  <div id="grid"></div>
+  <!-- The two sections. home.js fills each .grid with one card per level. -->
+  <section class="section" id="mainSection">
+    <h2>⭐ Main Levels</h2>
+    <p class="sub">The official Coin Quest levels.</p>
+    <div class="grid" id="mainGrid"></div>
+  </section>
+
+  <section class="section" id="communitySection">
+    <h2>🌍 Community Levels</h2>
+    <p class="sub">Levels anyone has published. (Saved on this computer.)</p>
+    <div class="grid" id="communityGrid"></div>
+  </section>
+
+  <!-- The Settings dialog (hidden until you click ⚙️ Settings on a card). -->
+  <div class="modal-backdrop hide" id="settingsBackdrop">
+    <div class="modal">
+      <h3>⚙️ Level settings</h3>
+
+      <label for="setName">Name</label>
+      <input type="text" id="setName" maxlength="40" />
+
+      <label for="setDifficulty">Difficulty</label>
+      <select id="setDifficulty">
+        <option value="">Unrated</option>
+        <option value="easy">Easy</option>
+        <option value="medium">Medium</option>
+        <option value="hard">Hard</option>
+      </select>
+
+      <label for="setOrder">Order on the home page</label>
+      <input type="number" id="setOrder" step="1" />
+      <p class="hint">Smaller number = shown earlier (1 is first).</p>
+
+      <!-- Choosing the section is OWNER-ONLY (home.js hides this for players). -->
+      <div class="owner-only hide" id="sectionField">
+        <label for="setSection">Section</label>
+        <select id="setSection">
+          <option value="community">🌍 Community</option>
+          <option value="main">⭐ Main</option>
+        </select>
+      </div>
+
+      <div class="modal-row">
+        <button class="btn grey" id="setCancel">Cancel</button>
+        <button class="btn" id="setSave">Save</button>
+      </div>
+    </div>
+  </div>
 
   <!-- The shared sprite registry + the multi-level "save box". home.js needs both
        (the registry to know each sprite's picture + size, the save box to list

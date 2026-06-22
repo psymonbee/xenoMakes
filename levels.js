@@ -16,9 +16,17 @@
 //          tiles: [ {id,x,y,angle,flipX,flipY,z?,path?}, … ],
 //          created: 1718900000000,   // when it was first made (ms)
 //          updated: 1718900500000,   // when it was last saved (ms)
+//          section:    "community",  // "main" (owner's official levels) or
+//                                    //   "community" (anyone's published levels)
+//          difficulty: null,         // null = unrated, else "easy"/"medium"/"hard"
+//          order:      1718900000000,// sort order in its section (smaller = first)
 //        },
 //        …
 //      }
+//
+//  The last three fields power the home page's two sections (Main + Community),
+//  the difficulty badges, and the "Settings" dialog. Older saves that don't have
+//  them yet are quietly given sensible defaults when we read them (see normalize).
 //
 //  This file is loaded by the editor, the game, AND the home page, so all three
 //  agree on how levels are stored — the same idea as palette.js for sprites.
@@ -56,6 +64,24 @@ function newLevelId() {
   return "lvl-" + Date.now() + "-" + Math.floor(Math.random() * 1000);
 }
 
+// The three difficulty words we allow (anything else becomes "unrated"/null).
+const DIFFICULTIES = ["easy", "medium", "hard"];
+
+// Fill in any missing new-style fields so old saves "just work". We never throw
+// data away — we only ADD defaults for fields that aren't there yet:
+//   • section    → "community" (a normal published level; the owner can promote
+//                  a level to "main" later from the home page's Settings dialog)
+//   • difficulty → null  (shown as "Unrated" until someone picks easy/medium/hard)
+//   • order      → its created time, so existing levels keep a stable order and
+//                  brand-new ones naturally fall to the end until you reorder them
+function normalize(level) {
+  if (!level) return level;
+  if (level.section !== "main" && level.section !== "community") level.section = "community";
+  if (!DIFFICULTIES.includes(level.difficulty)) level.difficulty = null;
+  if (typeof level.order !== "number") level.order = level.created || 0;
+  return level;
+}
+
 
 // ----------------------------------------------------------------------------
 //  RESCUE the old single level (runs once)
@@ -88,20 +114,22 @@ window.Levels = {
   // Every level as a LIST, newest-saved first (handy for the home page).
   all() {
     migrateLegacy();
-    return Object.values(readStore()).sort((a, b) => (b.updated || 0) - (a.updated || 0));
+    return Object.values(readStore()).map(normalize).sort((a, b) => (b.updated || 0) - (a.updated || 0));
   },
 
   // One level by id, or null if it's not there.
   get(id) {
-    return readStore()[id] || null;
+    return normalize(readStore()[id] || null);
   },
 
   // Make and save a brand-new (empty) level. Returns the new level object.
-  create(name, pack = 0) {
+  // `extra` lets the home page pre-set fields like { section: "main" } when the
+  // owner makes a new MAIN level — anything you don't pass gets a sane default.
+  create(name, pack = 0, extra = {}) {
     const store = readStore();
     const id = newLevelId();
     const now = Date.now();
-    const level = { id, name: name || "My Level", pack, tiles: [], created: now, updated: now };
+    const level = normalize({ id, name: name || "My Level", pack, tiles: [], created: now, updated: now, ...extra });
     store[id] = level;
     writeStore(store);
     return level;
@@ -137,4 +165,5 @@ window.Levels = {
   },
 
   newLevelId,
+  DIFFICULTIES,   // ["easy","medium","hard"] — the home page's Settings dropdown uses this
 };

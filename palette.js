@@ -116,7 +116,7 @@ const BASE_PACK = {
 const ALL_PACKS = [BASE_PACK, ...(window.EXTRA_PACKS || [])];
 
 window.ASSET_INFO = {};
-window.ROLES = { player: new Set(), coin: new Set(), flag: new Set(), hazard: new Set(), reset: new Set(), solid: new Set() };
+window.ROLES = { player: new Set(), coin: new Set(), flag: new Set(), hazard: new Set(), reset: new Set(), solid: new Set(), spring: new Set() };
 
 // Per-pack list of "this name-prefix means solid ground" rules, keyed by pack id.
 const SOLID_PREFIXES = {};   // { packId: ["grass","dirt",…] }
@@ -157,6 +157,15 @@ for (const pack of ALL_PACKS) {
   collect(R.hazard, window.ROLES.hazard);
   collect(R.reset, window.ROLES.reset);
   collect(R.solid, window.ROLES.solid);
+  collect(R.spring, window.ROLES.spring);   // a pack MAY list its springs by name…
+}
+
+// …but we also spot springs by their picture name, so every pack works with no
+// extra wiring: the Classic pack's "springboardUp" and the Standard pack's
+// "spring" both become bouncy without anyone editing a manifest.
+for (const id of Object.keys(window.ASSET_INFO)) {
+  const n = window.ASSET_INFO[id].name;
+  if (n === "spring" || n === "springboardUp") window.ROLES.spring.add(id);
 }
 
 // Keep the old name some code still uses.
@@ -257,6 +266,7 @@ function computeLayer(id) {
   if (a.bg) return "background";
   if (a.folder === "enemies") return "foes";        // slimes, snails, flies…
   if (window.ROLES.coin.has(id) || window.ROLES.flag.has(id)) return "items";
+  if (window.ROLES.spring.has(id)) return "items";  // springs sit up with the items
   if (window.isSolidId(id)) return "terrain";       // ground / platforms / blocks
   if (window.ROLES.hazard.has(id) || window.ROLES.reset.has(id)) return "terrain"; // lava, spikes, reset zones
   return "decoration";                              // bushes, signs, clouds…

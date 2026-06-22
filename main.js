@@ -16,7 +16,8 @@
 //  SETTINGS  —  the fun knobs to turn  (try changing these numbers!)
 // ----------------------------------------------------------------------------
 const PLAYER_SPEED = 240;   // how fast the player runs (bigger = faster)
-const JUMP_FORCE   = 1000;   // how hard the player jumps (bigger = higher)
+const JUMP_FORCE   = 750;    // how hard the player jumps (bigger = higher)
+const SPRING_FORCE = 1500;   // how hard a spring launches you (bigger = higher — try 2000!)
 const GRAVITY      = 1700;  // how strongly things fall (bigger = heavier)
 const TILE_SIZE    = 70;    // size of one tile in pixels (the art is 70x70)
 
@@ -124,6 +125,7 @@ const COIN_IDS   = window.ROLES.coin;
 const HAZARD_IDS = window.ROLES.hazard;
 const PLAYER_IDS = window.ROLES.player;
 const FLAG_IDS   = window.ROLES.flag;
+const SPRING_IDS = window.ROLES.spring;   // bouncy springs that fling you upward
 // RESET zones: INVISIBLE blocks that send the player back to the start when
 // touched. In the GAME you can't see them at all; in the level designer they
 // show as a red outline so you know where you put them.
@@ -301,6 +303,10 @@ function addDesignTile(id, x, y, angle = 0, flipX = false, flipY = false, path =
     o = add([rect(w, h), ...common, area(), opacity(0), "hazard"]);
   } else if (HAZARD_IDS.has(id)) {
     o = add([pic, ...common, area(), "hazard"]);  // touching = respawn
+  } else if (SPRING_IDS.has(id)) {
+    // A bouncy spring! It's solid so you can stand on it, and the "spring" tag
+    // lets the bounce code (down in the scene) fling you up when you touch it.
+    o = add([pic, ...common, area(), body({ isStatic: true }), "spring"]);
   } else if (isSolidId(id)) {
     // Stand on it. If it's a slope, give it a triangle hitbox that matches the
     // art — mirrored to match a flipped picture; otherwise a normal square
@@ -548,6 +554,14 @@ player.onCollide("hazard", () => {
   playSfx("hurt");        // "ow!" before we get sent back
   player.pos = START_POS.clone();
   player.vel = vec2(0, 0);
+});
+
+// BOING! Landing on a spring flings the player high into the air. We use
+// player.jump(), which gives an upward burst no matter how you touched it — so
+// it works whether you walked into it, fell onto it, or hopped on top.
+player.onCollide("spring", () => {
+  player.jump(SPRING_FORCE);
+  playSfx(SFX.jumpHigh ? "jumpHigh" : "jump");   // the bigger "boing" if we have it
 });
 
 
