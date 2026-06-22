@@ -863,6 +863,22 @@ function pickPlaced(worldPt) {
   return null;
 }
 
+// Like pickPlaced, but ONLY finds foes. Path mode uses this so a click on the
+// sky background (or a coin, or a block) can't get picked as the "foe" — it
+// would otherwise hijack the selection, because backgrounds cover huge areas
+// and pickPlaced grabs whatever was placed last, not what's actually a foe.
+function pickFoe(worldPt) {
+  for (let i = placed.length - 1; i >= 0; i--) {
+    const o = placed[i];
+    if (o.layer !== "foes") continue;
+    if (
+      worldPt.x >= o.pos.x && worldPt.x <= o.pos.x + o.width &&
+      worldPt.y >= o.pos.y && worldPt.y <= o.pos.y + o.height
+    ) return o;
+  }
+  return null;
+}
+
 
 // ----------------------------------------------------------------------------
 //  DRAGGING  —  start a drag (either a NEW sprite from the drawer, or MOVE an
@@ -994,7 +1010,7 @@ onMousePress("left", () => {
     }
     // Out in the world: click a foe to select it, or click a cell to add a waypoint.
     const wpt = toWorld(m);
-    const hit = pickPlaced(wpt);
+    const hit = pickFoe(wpt);          // ONLY foes can be selected here (not sky/blocks)
     if (hit) {
       if (hit !== pathFoe) {
         pathFoe = hit;
