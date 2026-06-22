@@ -13,6 +13,14 @@ Newest entries are at the top.
 
 ---
 
+## 2026-06-22 — ✅ Synced fine (sent Zac's work up)
+- Saved Zac's work: 5 files committed (d25dc12) — bouncy springs, lower jump (1000→750),
+  owner login, Main/Community home-page sections + difficulty badges
+- main was 1 ahead / 0 behind (Simon had nothing new on `main`)
+- Pushed straight to GitHub — no merge needed, so no conflict risk
+- Note: Simon has a separate WIP branch on GitHub (`claude/click-place-paint-editor-yfaddd`),
+  not merged into main yet — left untouched
+
 ## 2026-06-22 — ✅ Synced fine (caught up)
 - Zac had nothing new to save (working tree clean)
 - GitHub was 2 commits ahead; fast-forwarded `main` (9f5c0ac → 252b94f)
