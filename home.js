@@ -48,6 +48,8 @@ function refreshAccountUI() {
   document.getElementById("newMainBtn").classList.toggle("hide", !isAdmin());
   // The "My Levels" section only appears when you're logged in.
   document.getElementById("mySection").classList.toggle("hide", !u);
+  // The welcome / sign-in banner shows ONLY to logged-out online visitors.
+  document.getElementById("welcome").classList.toggle("hide", isOffline() || !!u);
 }
 // Old name kept so existing calls still work.
 function refreshOwnerUI() { refreshAccountUI(); }
@@ -318,9 +320,9 @@ function makeCard(level) {
 // "easy" -> "Easy"
 function capitalize(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
 
-// Open the game on a level. "./?play=…" points at the game (index) and, because
-// "/" is the server's canonical address, the "?play=…" part survives the trip.
-function play(id) { window.location.href = "./?play=" + id; }
+// Open the game on a level. The game lives at "/play" now (the front door "/" is
+// this home page), so we send the player to "play?play=<id>".
+function play(id) { window.location.href = "play?play=" + id; }
 
 
 // ----------------------------------------------------------------------------
@@ -402,8 +404,11 @@ function render() {
 
   const u = me();
   const levels = window.Levels.all();
+  // The big "make your first level" message is only useful to someone who CAN
+  // make levels (logged in, or offline). Logged-out visitors see the welcome
+  // banner instead, so don't show this to them.
   const empty = document.getElementById("empty");
-  empty.classList.toggle("hide", levels.length !== 0);
+  empty.classList.toggle("hide", levels.length !== 0 || !(isOffline() || u));
 
   // Sort levels into the three sections:
   //   ⭐ Main      — official levels (section "main")
@@ -447,6 +452,7 @@ function closeAuth() { authBackdrop.classList.add("hide"); }
 function showAuthError(msg) { authErr.textContent = msg; authErr.classList.remove("hide"); }
 
 document.getElementById("authCancel").addEventListener("click", closeAuth);
+document.getElementById("welcomeAuth").addEventListener("click", openAuth);
 authBackdrop.addEventListener("click", (e) => { if (e.target === authBackdrop) closeAuth(); });
 
 document.getElementById("authLogin").addEventListener("click", async () => {

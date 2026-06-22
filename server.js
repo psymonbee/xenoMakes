@@ -305,7 +305,12 @@ app.delete("/api/levels/:id", (req, res) => {
 // ----------------------------------------------------------------------------
 //  We also support "clean" links like "/home" and "/editor" (no ".html"),
 //  because the rest of the site links to pages that way.
-app.get("/", (req, res) => res.sendFile(path.join(__dirname, "index.html")));
+//
+//  The FRONT DOOR ("/") is the home page (the gallery + Log in / Sign up), NOT
+//  the game — so a first-time visitor lands somewhere they can sign in and see
+//  the levels. The actual game lives at "/play" (and "/game" as an alias).
+app.get("/", (req, res) => res.sendFile(path.join(__dirname, "home.html")));
+app.get(["/play", "/game"], (req, res) => res.sendFile(path.join(__dirname, "index.html")));
 
 app.use((req, res, next) => {
   // Only handle plain GETs that don't already point at a real file.

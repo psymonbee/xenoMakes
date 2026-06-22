@@ -1005,7 +1005,7 @@ onMousePress("left", () => {
     }
     // In the drawer area, only the Play button still does something.
     if (m.x < DRAWER_W) {
-      if (inRect(m.x, m.y, playRect())) { saveLevel(); window.location.href = "./?play=" + currentLevel.id; return; }
+      if (inRect(m.x, m.y, playRect())) { saveLevel(); window.location.href = "play?play=" + currentLevel.id; return; }
       return;
     }
     // Out in the world: click a foe to select it, or click a cell to add a waypoint.
@@ -1043,12 +1043,11 @@ onMousePress("left", () => {
     for (const t of tabRects()) {
       if (inRect(m.x, m.y, t)) { activeCat = t.i; scrollY = 0; return; }
     }
-    // The play button? Save first, then open the game on this level.
-    // "./?play=1" points at the game (index.html) and keeps the "?play=1" part
-    // even on servers that hide ".html" in the address bar.
+    // The play button? Save first, then open the game on this level. The game
+    // lives at "/play" now (the front door "/" is the home page).
     if (inRect(m.x, m.y, playRect())) {
       saveLevel();
-      window.location.href = "./?play=" + currentLevel.id;
+      window.location.href = "play?play=" + currentLevel.id;
       return;
     }
     // The clear button?
