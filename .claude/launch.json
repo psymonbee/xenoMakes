@@ -4,8 +4,9 @@
     {
       "name": "game",
       "runtimeExecutable": "npx",
-      "runtimeArgs": ["-y", "serve", "."],
-      "autoPort": true
+      "runtimeArgs": ["-y", "serve", ".", "-l", "8080"],
+      "port": 8080,
+      "autoPort": false
     }
   ]
 }
