@@ -67,6 +67,7 @@ const BASE_PACK = {
         "gemBlue", "gemGreen", "gemRed", "gemYellow", "star",
         "keyBlue", "keyGreen", "keyRed", "keyYellow",
         "flagGreen", "springboardUp",
+        "switchLeft", "buttonRed",   // a lever and a button — both open/close doors
         "bush", "cactus", "mushroomRed", "mushroomBrown", "rock", "plant", "cloud1",
       ],
     },
@@ -90,6 +91,11 @@ const BASE_PACK = {
     flag: ["flagGreen"],
     hazard: ["spikes", "liquidLava", "liquidLavaTop_mid", "slimeWalk1", "snailWalk1", "flyFly1", "fishSwim1", "blockerBody"],
     reset: ["resetZone"],            // invisible "send player back to start" zones
+    spring: ["springboardUp"],       // bouncy boards — jump on them to launch high
+    coinblock: ["boxCoin"],          // "?" blocks — head-bump from below for a coin
+    lever: ["switchLeft"],           // levers — touch to open/close every door
+    button: ["buttonRed"],           // buttons — step on to open/close every door
+    door: ["door_closedTop", "door_closedMid"], // walls that open when a lever/button says so
     solidPrefixes: ["grass", "dirt", "sand", "snow", "stone", "castle"],
     solid: ["box", "boxCoin", "boxItem", "brickWall", "bridge"],
   },
@@ -104,7 +110,8 @@ const BASE_PACK = {
 //  After this runs we have, for the WHOLE game:
 //    window.ASSET_INFO[id]  = { pack, name, folder, w, h, root }
 //    window.spritePath(id)  = "assets/.../name.png"
-//    window.ROLES           = { player, coin, flag, hazard, reset, solid } sets
+//    window.ROLES           = { player, coin, flag, hazard, reset, spring,
+//                                coinblock, lever, button, door, solid } sets
 //    window.RESET_IDS       = the reset set (kept under its old name)
 //    window.isSolidId(id)   = can you stand on it?
 //    window.PACKS           = the manifests (the editor's pack picker reads this)
@@ -112,7 +119,7 @@ const BASE_PACK = {
 const ALL_PACKS = [BASE_PACK, ...(window.EXTRA_PACKS || [])];
 
 window.ASSET_INFO = {};
-window.ROLES = { player: new Set(), coin: new Set(), flag: new Set(), hazard: new Set(), reset: new Set(), solid: new Set() };
+window.ROLES = { player: new Set(), coin: new Set(), flag: new Set(), hazard: new Set(), reset: new Set(), spring: new Set(), coinblock: new Set(), lever: new Set(), button: new Set(), door: new Set(), solid: new Set() };
 
 // Per-pack list of "this name-prefix means solid ground" rules, keyed by pack id.
 const SOLID_PREFIXES = {};   // { packId: ["grass","dirt",…] }
@@ -152,6 +159,11 @@ for (const pack of ALL_PACKS) {
   collect(R.flag, window.ROLES.flag);
   collect(R.hazard, window.ROLES.hazard);
   collect(R.reset, window.ROLES.reset);
+  collect(R.spring, window.ROLES.spring);
+  collect(R.coinblock, window.ROLES.coinblock);
+  collect(R.lever, window.ROLES.lever);
+  collect(R.button, window.ROLES.button);
+  collect(R.door, window.ROLES.door);
   collect(R.solid, window.ROLES.solid);
 }
 
