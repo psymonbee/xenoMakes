@@ -21,6 +21,17 @@ Newest entries are at the top.
 - Note: Simon has a separate WIP branch on GitHub (`claude/click-place-paint-editor-yfaddd`),
   not merged into main yet — left untouched
 
+## 2026-06-22 19:32 — ✅ Synced fine (feature branch)
+- Working on branch `claude/click-place-paint-editor-yfaddd` (NOT main) on purpose —
+  this is the editor click-to-place/foe-path branch, headed to main later via `/ship`.
+- Saved Zac's work first: committed a foe-path fix (88848f5) — path mode was
+  selecting the sky/background as a "foe" because picking ignored layers; now it
+  only selects foes.
+- Branch was 1 ahead / 0 behind its remote, so just pushed (777fe1c → 88848f5).
+- No merge needed, no conflicts. `main` itself was left untouched.
+
+---
+
 ## 2026-06-22 — ✅ Synced fine (caught up)
 - Zac had nothing new to save (working tree clean)
 - GitHub was 2 commits ahead; fast-forwarded `main` (9f5c0ac → 252b94f)
