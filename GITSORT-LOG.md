@@ -13,6 +13,12 @@ Newest entries are at the top.
 
 ---
 
+## 2026-06-22 — ✅ Synced fine (caught up)
+- Zac had nothing new to save (working tree clean)
+- GitHub was 2 commits ahead; fast-forwarded `main` (9f5c0ac → 252b94f)
+- Pulled in Simon's new `PROJECT_OVERVIEW.md` (no conflicts possible — Zac had no new commits)
+- Pushed the log entry back up
+
 ## 2026-06-22 01:05 — ✅ Synced fine
 - Saved Zac's work: 1 file committed (b3c9af4) — pinned the in-app preview to
   port 8080 (`.claude/launch.json`) so it shares one localStorage box with
