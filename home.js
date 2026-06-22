@@ -15,47 +15,58 @@
 
 
 // ----------------------------------------------------------------------------
-//  OWNER MODE  —  a simple "pretend lock"
+//  ACCOUNTS  —  the REAL log-in, replacing the old hard-coded "owner word"
 // ----------------------------------------------------------------------------
-//  Type the owner word to unlock the owner-only buttons (make Main levels, and
-//  Edit/Delete/Settings on Main levels). It's saved in this browser only.
+//  Who you are now comes from the SERVER (see levels.js + server.js). These tiny
+//  helpers just ask "who's logged in?" and "are they an admin?".
 //
-//  ⚠️ IMPORTANT: this is NOT real security. The word is right here in the code,
-//  so anyone curious could find it. It just keeps players from *accidentally*
-//  changing the official levels. To change it, edit OWNER_WORD below.
-const OWNER_WORD = "coinquest";
-const OWNER_KEY  = "coinquest-owner";
-function isOwner()      { return localStorage.getItem(OWNER_KEY) === "yes"; }
-function setOwner(on)   { localStorage.setItem(OWNER_KEY, on ? "yes" : "no"); }
+//  OFFLINE: if there's no server, there are no accounts — it's just you on this
+//  computer (like the game always used to be). We hide the login UI in that case.
+function me()        { return window.Levels.me(); }              // {id,username,isAdmin} or null
+function isAdmin()   { return !!(me() && me().isAdmin); }        // can make ⭐ Main levels
+function isOffline() { return window.Levels.offline; }           // no server?
+function isOwner()   { return isAdmin(); }                       // (kept for old call sites)
 
-const ownerBtn = document.getElementById("ownerBtn");
+const ownerBtn = document.getElementById("ownerBtn");            // the account button
 
-// Update the owner button's look + show/hide the owner-only buttons.
-function refreshOwnerUI() {
-  const owner = isOwner();
-  ownerBtn.textContent = owner ? "🔓 Owner (log out)" : "🔒 Owner";
-  ownerBtn.classList.toggle("on", owner);
-  // Show owner-only bits (the "New main level" button, the modal's Section pick).
-  document.querySelectorAll(".owner-only").forEach((el) => el.classList.toggle("hide", !owner));
-}
-
-ownerBtn.addEventListener("click", () => {
-  if (isOwner()) {
-    setOwner(false);                      // log out
+// Update the account button + show/hide the bits that need a login.
+function refreshAccountUI() {
+  const u = me();
+  if (isOffline()) {
+    ownerBtn.textContent = "💾 Saved on this computer";
+    ownerBtn.classList.remove("on");
+  } else if (u) {
+    ownerBtn.textContent = "👤 " + u.username + (u.isAdmin ? " ⭐" : "");
+    ownerBtn.classList.add("on");
   } else {
-    const word = prompt("Enter the owner word to unlock owner mode:");
-    if (word === null) return;            // they pressed Cancel
-    if (word !== OWNER_WORD) { alert("That's not the owner word. Try again!"); return; }
-    setOwner(true);
+    ownerBtn.textContent = "🔑 Log in / Sign up";
+    ownerBtn.classList.remove("on");
   }
-  refreshOwnerUI();
-  render();
+  // You need to be logged in (or offline) to make levels; Main needs an admin.
+  const canMake = isOffline() || !!u;
+  document.getElementById("newBtn").classList.toggle("hide", !canMake);
+  document.getElementById("newMainBtn").classList.toggle("hide", !isAdmin());
+  // The "My Levels" section only appears when you're logged in.
+  document.getElementById("mySection").classList.toggle("hide", !u);
+}
+// Old name kept so existing calls still work.
+function refreshOwnerUI() { refreshAccountUI(); }
+
+// Clicking the account button: offline does nothing; logged in opens the
+// account box; logged out opens the log-in / sign-up box.
+ownerBtn.addEventListener("click", () => {
+  if (isOffline()) return;
+  if (me()) openAccount(); else openAuth();
 });
 
-// "Can I change this level's name/difficulty/order, edit it, or delete it?"
-//  • Community levels: yes, anyone can (they live on this computer).
-//  • Main levels: only the owner can.
-function canManage(level) { return level.section !== "main" || isOwner(); }
+// "Can I edit/delete/settings this level?"
+//  • Offline: yes (it's all yours on this computer).
+//  • Online: only if you made it, or you're an admin.
+function canManage(level) {
+  if (isOffline()) return true;
+  const u = me();
+  return !!u && (level.owner === u.id || u.isAdmin);
+}
 
 
 // ----------------------------------------------------------------------------
@@ -64,12 +75,14 @@ function canManage(level) { return level.section !== "main" || isOwner(); }
 //  We make the level HERE (so we can stamp its section) and then open the editor
 //  on it by id. We link with "editor?level=…" (no ".html"): our local server
 //  drops the "?…" off a ".html" link, but keeps it on the clean "editor?…" form.
-document.getElementById("newBtn").addEventListener("click", () => {
+document.getElementById("newBtn").addEventListener("click", async () => {
   const lvl = window.Levels.create(window.Levels.suggestName(), 0, { section: "community" });
+  await window.Levels.flush();            // make sure it's saved BEFORE we leave
   window.location.href = "editor?level=" + lvl.id;
 });
-document.getElementById("newMainBtn").addEventListener("click", () => {
+document.getElementById("newMainBtn").addEventListener("click", async () => {
   const lvl = window.Levels.create(window.Levels.suggestName(), 0, { section: "main" });
+  await window.Levels.flush();
   window.location.href = "editor?level=" + lvl.id;
 });
 
@@ -234,8 +247,35 @@ function makeCard(level) {
   badge.textContent = level.difficulty ? capitalize(level.difficulty) : "Unrated";
   info.appendChild(badge);
 
+  // If this is YOUR level, show whether it's still private or shared.
+  if (canManage(level) && !isOffline()) {
+    const status = document.createElement("span");
+    const published = level.status === "published";
+    status.className = "badge status " + (published ? "published" : "indev");
+    status.textContent = published ? "🌍 Published" : "🛠 In progress";
+    status.style.marginLeft = "6px";
+    info.appendChild(status);
+  }
+
   // The manage buttons — only if you're allowed to manage this level.
   if (canManage(level)) {
+    // Publish / unpublish: flip the level between your private workshop and the
+    // shared space. (Hidden offline, where there's no shared space.)
+    if (!isOffline()) {
+      const pubBtn = document.createElement("button");
+      const published = level.status === "published";
+      pubBtn.className = "btn small " + (published ? "grey" : "");
+      pubBtn.style.width = "100%";
+      pubBtn.style.marginTop = "10px";
+      pubBtn.textContent = published ? "🙈 Unpublish (make private)" : "🌍 Publish to shared space";
+      pubBtn.addEventListener("click", () => {
+        level.status = published ? "in-dev" : "published";
+        window.Levels.put(level);
+        render();
+      });
+      info.appendChild(pubBtn);
+    }
+
     const setBtn = document.createElement("button");
     setBtn.className = "btn small grey";
     setBtn.style.width = "100%";
@@ -358,24 +398,136 @@ function fillGrid(grid, list, emptyText) {
 }
 
 function render() {
-  refreshOwnerUI();                       // keep the header buttons in sync
+  refreshAccountUI();                      // keep the header buttons in sync
 
+  const u = me();
   const levels = window.Levels.all();
   const empty = document.getElementById("empty");
   empty.classList.toggle("hide", levels.length !== 0);
 
+  // Sort levels into the three sections:
+  //   ⭐ Main      — official levels (section "main")
+  //   🛠 My Levels — your own levels (both private + published), when logged in
+  //   🌍 Shared    — everyone else's PUBLISHED levels (or all of them, offline)
+  const mains  = levels.filter((l) => l.section === "main").sort(byOrder);
+  const mine   = u ? levels.filter((l) => l.section !== "main" && l.owner === u.id).sort(byOrder) : [];
+  const shared = levels.filter((l) =>
+      l.section !== "main" &&
+      (!u || l.owner !== u.id) &&
+      (isOffline() || l.status === "published")
+    ).sort(byOrder);
+
   // Make sure all the sprite pictures are loaded, THEN draw the cards.
   loadAllImages(levels).then(() => {
-    const mains     = levels.filter((l) => l.section === "main").sort(byOrder);
-    const community = levels.filter((l) => l.section !== "main").sort(byOrder);
-
     fillGrid(document.getElementById("mainGrid"), mains,
-      isOwner() ? "No main levels yet. Click ⭐ New main level to add one."
+      isAdmin() ? "No main levels yet. Click ⭐ New main level to add one."
                 : "No main levels yet.");
-    fillGrid(document.getElementById("communityGrid"), community,
-      "No community levels yet. Click ➕ New level to add one.");
+    fillGrid(document.getElementById("myGrid"), mine,
+      "You haven't made any levels yet. Click ➕ New level to start!");
+    fillGrid(document.getElementById("communityGrid"), shared,
+      "No shared levels yet. Publish one of yours to share it here!");
   });
 }
 
-refreshOwnerUI();
-render();
+
+// ----------------------------------------------------------------------------
+//  THE LOG-IN / SIGN-UP DIALOG
+// ----------------------------------------------------------------------------
+const authBackdrop = document.getElementById("authBackdrop");
+const authErr = document.getElementById("authErr");
+
+function openAuth() {
+  authErr.classList.add("hide");
+  document.getElementById("authUser").value = "";
+  document.getElementById("authPass").value = "";
+  authBackdrop.classList.remove("hide");
+  document.getElementById("authUser").focus();
+}
+function closeAuth() { authBackdrop.classList.add("hide"); }
+function showAuthError(msg) { authErr.textContent = msg; authErr.classList.remove("hide"); }
+
+document.getElementById("authCancel").addEventListener("click", closeAuth);
+authBackdrop.addEventListener("click", (e) => { if (e.target === authBackdrop) closeAuth(); });
+
+document.getElementById("authLogin").addEventListener("click", async () => {
+  try {
+    await window.Levels.login(
+      document.getElementById("authUser").value.trim(),
+      document.getElementById("authPass").value);
+    closeAuth(); render();
+  } catch (e) { showAuthError(e.message); }
+});
+document.getElementById("authSignup").addEventListener("click", async () => {
+  try {
+    await window.Levels.signup(
+      document.getElementById("authUser").value.trim(),
+      document.getElementById("authPass").value,
+      document.getElementById("authInvite").value.trim(),
+      document.getElementById("authAdmin").value);
+    closeAuth(); render();
+  } catch (e) { showAuthError(e.message); }
+});
+
+
+// ----------------------------------------------------------------------------
+//  THE ACCOUNT DIALOG  (log out / delete account / upload old levels)
+// ----------------------------------------------------------------------------
+const accountBackdrop = document.getElementById("accountBackdrop");
+
+function openAccount() {
+  const u = me();
+  document.getElementById("accountName").textContent = u ? u.username : "";
+  // Offer to upload old this-computer levels, but only if there are any.
+  const oldCount = countOldLocalLevels();
+  const upBtn  = document.getElementById("uploadOld");
+  const upHint = document.getElementById("uploadOldHint");
+  upBtn.classList.toggle("hide", oldCount === 0);
+  upHint.textContent = oldCount ? (oldCount + " old level(s) found on this computer.") : "";
+  accountBackdrop.classList.remove("hide");
+}
+function closeAccount() { accountBackdrop.classList.add("hide"); }
+
+document.getElementById("accountClose").addEventListener("click", closeAccount);
+accountBackdrop.addEventListener("click", (e) => { if (e.target === accountBackdrop) closeAccount(); });
+
+document.getElementById("logoutBtn").addEventListener("click", async () => {
+  await window.Levels.logout(); closeAccount(); render();
+});
+
+document.getElementById("deleteAccountBtn").addEventListener("click", async () => {
+  if (!confirm("Delete your account AND every level you made? This cannot be undone.")) return;
+  await window.Levels.deleteAccount(); closeAccount(); render();
+});
+
+// "Upload my old levels" — copy any levels still in this browser's localStorage
+// up to the server under YOUR account (as private "in progress" levels).
+document.getElementById("uploadOld").addEventListener("click", async () => {
+  const old = readOldLocalLevels();
+  for (const lvl of old) {
+    window.Levels.create(lvl.name || "My Level", lvl.pack || 0, {
+      tiles: lvl.tiles || [], difficulty: lvl.difficulty || null, status: "in-dev",
+    });
+  }
+  await window.Levels.flush();
+  await window.Levels.load();              // refresh from the server
+  alert("Uploaded " + old.length + " level(s) to your account! 🎉");
+  closeAccount(); render();
+});
+
+// Read the OLD this-computer save box (used only by the upload helper above).
+function readOldLocalLevels() {
+  try {
+    const obj = JSON.parse(localStorage.getItem("coinquest-levels") || "{}");
+    return Object.values(obj).filter((l) => l && (l.tiles || []).length > 0);
+  } catch (e) { return []; }
+}
+function countOldLocalLevels() { return readOldLocalLevels().length; }
+
+
+// ----------------------------------------------------------------------------
+//  START UP  —  load every level (and who we are), THEN draw the page
+// ----------------------------------------------------------------------------
+window.Levels.load().then(() => {
+  refreshAccountUI();
+  render();
+});

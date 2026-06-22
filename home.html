@@ -3,6 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <!-- Please don't list this kids' game in search engines (see DEPLOY_DESIGN.md §9). -->
+  <meta name="robots" content="noindex, nofollow" />
   <title>Coin Quest — My Levels</title>
   <style>
     /* -------------------------------------------------------------------------
@@ -178,6 +180,19 @@
     .badge.easy   { background: var(--easy); }
     .badge.medium { background: var(--medium); }
     .badge.hard   { background: var(--hard); }
+    /* The "is it shared yet?" badge on your own cards. */
+    .badge.status.indev     { background: #6b5a2f; }
+    .badge.status.published  { background: #2f6b50; }
+
+    /* A small error line in the log-in box. */
+    .err { color: #ff9a9a; font-size: 14px; margin: 12px 0 0; }
+    .err.hide { display: none; }
+    /* The "new here? sign up" expander in the log-in box. */
+    details summary { cursor: pointer; color: var(--ink-dim); margin: 14px 0 4px; font-weight: bold; }
+    /* A little footer with the privacy + house-rules link. */
+    footer { text-align: center; color: var(--ink-dim); padding: 30px 16px 40px; font-size: 14px; }
+    footer a { color: var(--accent-bright); }
+    .hide { display: none; }
 
     /* The friendly message shown when you have NO levels at all. */
     #empty {
@@ -230,10 +245,10 @@
       <p>Pick a level to play or edit, or start a brand-new one.</p>
     </div>
     <div class="header-buttons">
-      <!-- Lock button: click to become the owner (or to log out). home.js fills in
-           its label and the "on" class depending on whether you're logged in. -->
-      <button class="btn lock" id="ownerBtn">🔒 Owner</button>
-      <!-- "New main level" only shows for the owner (home.js toggles it). -->
+      <!-- Account button: log in / sign up, or (when logged in) your name.
+           home.js fills in its label and the "on" class. -->
+      <button class="btn lock" id="ownerBtn">🔑 Account</button>
+      <!-- "New main level" only shows for an admin (home.js toggles it). -->
       <button class="btn owner-only hide" id="newMainBtn">⭐ New main level</button>
       <button class="btn" id="newBtn">➕ New level</button>
     </div>
@@ -245,16 +260,24 @@
     Click <b>➕ New level</b> to start building!
   </div>
 
-  <!-- The two sections. home.js fills each .grid with one card per level. -->
+  <!-- The three sections. home.js fills each .grid with one card per level. -->
   <section class="section" id="mainSection">
     <h2>⭐ Main Levels</h2>
     <p class="sub">The official Coin Quest levels.</p>
     <div class="grid" id="mainGrid"></div>
   </section>
 
+  <!-- Your own workshop — your private "in progress" levels AND your published
+       ones. Only shown when you're logged in (home.js hides it otherwise). -->
+  <section class="section hide" id="mySection">
+    <h2>🛠 My Levels</h2>
+    <p class="sub">Your own levels. Only you can see the "in progress" ones — press <b>Publish</b> to share.</p>
+    <div class="grid" id="myGrid"></div>
+  </section>
+
   <section class="section" id="communitySection">
-    <h2>🌍 Community Levels</h2>
-    <p class="sub">Levels anyone has published. (Saved on this computer.)</p>
+    <h2>🌍 Shared space</h2>
+    <p class="sub">Levels other people have published for everyone to play.</p>
     <div class="grid" id="communityGrid"></div>
   </section>
 
@@ -293,6 +316,61 @@
       </div>
     </div>
   </div>
+
+  <!-- The LOG-IN / SIGN-UP dialog (hidden until you click the account button). -->
+  <div class="modal-backdrop hide" id="authBackdrop">
+    <div class="modal">
+      <h3>🔑 Log in or sign up</h3>
+
+      <label for="authUser">Nickname <span style="font-weight:normal">(not your real name!)</span></label>
+      <input type="text" id="authUser" maxlength="20" autocomplete="username" />
+
+      <label for="authPass">Password</label>
+      <input type="password" id="authPass" autocomplete="current-password" />
+
+      <details id="signupExtra">
+        <summary>New here? Open this to sign up</summary>
+        <label for="authInvite">Invite code</label>
+        <input type="text" id="authInvite" />
+        <p class="hint">Ask whoever runs the game for the code.</p>
+        <label for="authAdmin">Grown-up admin word <span style="font-weight:normal">(optional)</span></label>
+        <input type="password" id="authAdmin" />
+        <p class="hint">Leave blank unless you're setting up ⭐ Main levels.</p>
+      </details>
+
+      <p class="err hide" id="authErr"></p>
+
+      <div class="modal-row">
+        <button class="btn grey" id="authCancel">Cancel</button>
+        <button class="btn grey" id="authSignup">Sign up</button>
+        <button class="btn" id="authLogin">Log in</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- The ACCOUNT dialog (log out / delete account / upload old levels). -->
+  <div class="modal-backdrop hide" id="accountBackdrop">
+    <div class="modal">
+      <h3>👤 <span id="accountName"></span></h3>
+      <p class="hint">You're logged in. Your levels are saved on the server for you.</p>
+
+      <button class="btn grey hide" id="uploadOld" style="width:100%;margin-top:10px">⬆️ Upload my old levels from this computer</button>
+      <p class="hint" id="uploadOldHint"></p>
+
+      <div class="modal-row">
+        <button class="btn grey" id="accountClose">Close</button>
+        <button class="btn" id="logoutBtn">Log out</button>
+      </div>
+
+      <button class="btn danger" id="deleteAccountBtn" style="width:100%;margin-top:14px">🗑 Delete my account &amp; all my levels</button>
+    </div>
+  </div>
+
+  <!-- A small footer linking to the plain-English privacy + house rules. -->
+  <footer>
+    Be kind, and never use your real name. &nbsp;·&nbsp;
+    <a href="privacy.html">Privacy &amp; house rules</a>
+  </footer>
 
   <!-- The shared sprite registry + the multi-level "save box". home.js needs both
        (the registry to know each sprite's picture + size, the save box to list

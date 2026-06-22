@@ -1374,5 +1374,13 @@ onUpdate(() => {
 // ----------------------------------------------------------------------------
 //  GO!  —  work out which level we're editing, load it, and we're ready to build
 // ----------------------------------------------------------------------------
-resolveCurrentLevel();
-loadLevel();
+//  When we're connected to the server, you must be logged in to build — saving
+//  needs to know who "you" are. If you're not, pop back to the home page to log
+//  in. (Offline / no-server mode skips this — it's just you on this computer.)
+if (!window.Levels.offline && !window.Levels.me()) {
+  alert("Please log in on the home page before building a level.");
+  window.location.href = "home";
+} else {
+  resolveCurrentLevel();
+  loadLevel();
+}

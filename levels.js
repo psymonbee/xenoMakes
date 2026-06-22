@@ -1,169 +1,224 @@
 // ============================================================================
 //  LEVELS  —  the shared "save box" that remembers ALL your levels
 // ============================================================================
-//  Before this file there was only ONE saved level. Now you can keep as many as
-//  you like — each with its own NAME — and pick one to play or edit from the
-//  home page (home.html).
+//  This used to keep every level in YOUR browser only (localStorage). Now it
+//  talks to our little server (server.js) so levels are shared with everyone and
+//  people can sign in. See DEPLOY_DESIGN.md for the whole picture.
 //
-//  Everything is stored in the browser's localStorage under ONE key. We keep a
-//  little object that maps each level's id to the level itself:
+//  HOW THE FRONT END USES IT (the important part):
+//    1. Each page calls  `await window.Levels.load()`  ONCE when it starts.
+//       That fetches every level you're allowed to see (plus who you are) into
+//       memory.
+//    2. After that, the old helpers — all(), get(), create(), put() … — work
+//       exactly like before and are still synchronous (they read the in-memory
+//       copy). Saving quietly sends the change to the server in the background.
 //
-//      {
-//        "lvl-abc123": {
-//          id:   "lvl-abc123",
-//          name: "My First Level",
-//          pack: 0,                  // which drawer pack the editor was on
-//          tiles: [ {id,x,y,angle,flipX,flipY,z?,path?}, … ],
-//          created: 1718900000000,   // when it was first made (ms)
-//          updated: 1718900500000,   // when it was last saved (ms)
-//          section:    "community",  // "main" (owner's official levels) or
-//                                    //   "community" (anyone's published levels)
-//          difficulty: null,         // null = unrated, else "easy"/"medium"/"hard"
-//          order:      1718900000000,// sort order in its section (smaller = first)
-//        },
-//        …
-//      }
+//  A level object still looks the same as it always has:
+//      { id, name, pack, tiles:[…], created, updated,
+//        owner,                     // which user made it (server fills this in)
+//        status:  "in-dev"|"published",   // private workshop vs shared space
+//        section: "community"|"main",     // "main" = official (admin only)
+//        difficulty: null|"easy"|"medium"|"hard",
+//        order: <number> }
 //
-//  The last three fields power the home page's two sections (Main + Community),
-//  the difficulty badges, and the "Settings" dialog. Older saves that don't have
-//  them yet are quietly given sensible defaults when we read them (see normalize).
-//
-//  This file is loaded by the editor, the game, AND the home page, so all three
-//  agree on how levels are stored — the same idea as palette.js for sprites.
+//  OFFLINE FALLBACK: if the server can't be reached (e.g. you opened the old
+//  static server), we quietly fall back to the OLD localStorage behaviour so the
+//  game still works — just on this computer only, with no accounts.
 // ============================================================================
 
 
-// The ONE localStorage key that holds every level.
-const LEVELS_KEY = "coinquest-levels";
+// ---- our in-memory copies, filled in by load() -----------------------------
+let _levels = {};        // id -> level   (everything we're allowed to see)
+let _user   = null;      // { id, username, isAdmin } or null when logged out
+let _offline = false;    // true once we've decided the server isn't there
+let _pending = Promise.resolve();   // the "write queue" tail (see _queue below)
 
-// The OLD key from back when there was only a single level. We still read it
-// once (to rescue an old creation) but we never throw it away.
-const LEGACY_KEY = "coinquest-level";
-
-
-// Read the whole "save box" as a plain object (id -> level). Always returns an
-// object, even if nothing is saved yet or the data is somehow broken.
-function readStore() {
-  try {
-    const raw = localStorage.getItem(LEVELS_KEY);
-    const obj = raw ? JSON.parse(raw) : {};
-    return (obj && typeof obj === "object") ? obj : {};
-  } catch (e) {
-    console.warn("Could not read saved levels:", e);
-    return {};
-  }
-}
-
-// Write the whole "save box" back to the browser.
-function writeStore(store) {
-  localStorage.setItem(LEVELS_KEY, JSON.stringify(store));
-}
+// The three difficulty words we allow (anything else becomes "unrated"/null).
+const DIFFICULTIES = ["easy", "medium", "hard"];
 
 // Make a fresh, unique id for a new level, e.g. "lvl-1718900000000-417".
 function newLevelId() {
   return "lvl-" + Date.now() + "-" + Math.floor(Math.random() * 1000);
 }
 
-// The three difficulty words we allow (anything else becomes "unrated"/null).
-const DIFFICULTIES = ["easy", "medium", "hard"];
-
-// Fill in any missing new-style fields so old saves "just work". We never throw
-// data away — we only ADD defaults for fields that aren't there yet:
-//   • section    → "community" (a normal published level; the owner can promote
-//                  a level to "main" later from the home page's Settings dialog)
-//   • difficulty → null  (shown as "Unrated" until someone picks easy/medium/hard)
-//   • order      → its created time, so existing levels keep a stable order and
-//                  brand-new ones naturally fall to the end until you reorder them
+// Fill in any missing fields so older/odd levels "just work".
 function normalize(level) {
   if (!level) return level;
   if (level.section !== "main" && level.section !== "community") level.section = "community";
+  if (level.status !== "published" && level.status !== "in-dev") level.status = "in-dev";
   if (!DIFFICULTIES.includes(level.difficulty)) level.difficulty = null;
   if (typeof level.order !== "number") level.order = level.created || 0;
   return level;
 }
 
+// Run server writes ONE AT A TIME, in order, so quick edits can't race each
+// other. flush() lets a page wait for them all to finish (handy before we send
+// the browser to another page — so the last save definitely lands first).
+function _queue(fn) {
+  _pending = _pending.then(fn).catch((e) => console.warn("Save failed:", e));
+  return _pending;
+}
 
-// ----------------------------------------------------------------------------
-//  RESCUE the old single level (runs once)
-// ----------------------------------------------------------------------------
-//  If someone built a level with the OLD editor (before names existed), it's
-//  sitting under LEGACY_KEY. The first time we run with an empty save box, turn
-//  that old creation into a proper named level so it isn't lost.
-function migrateLegacy() {
-  const store = readStore();
-  if (Object.keys(store).length > 0) return;     // already have named levels
-  try {
-    const raw = localStorage.getItem(LEGACY_KEY);
-    if (!raw) return;
-    const tiles = JSON.parse(raw);
-    if (!Array.isArray(tiles) || tiles.length === 0) return;
-    const id = newLevelId();
-    const now = Date.now();
-    store[id] = { id, name: "My First Level", pack: 0, tiles, created: now, updated: now };
-    writeStore(store);
-  } catch (e) {
-    console.warn("Could not rescue the old level:", e);
-  }
+// A small wrapper around fetch for our JSON API. `keepalive` lets a save finish
+// even if the page is navigating away a split-second later.
+async function api(method, url, body) {
+  const res = await fetch(url, {
+    method,
+    headers: body ? { "Content-Type": "application/json" } : undefined,
+    body: body ? JSON.stringify(body) : undefined,
+    keepalive: method !== "GET",
+  });
+  let data = null;
+  try { data = await res.json(); } catch (e) { /* some replies have no body */ }
+  if (!res.ok) throw new Error((data && data.error) || ("Request failed: " + res.status));
+  return data;
 }
 
 
-// ----------------------------------------------------------------------------
-//  THE PUBLIC HELPERS  —  what the editor / game / home page actually call
-// ----------------------------------------------------------------------------
+// ============================================================================
+//  OFFLINE FALLBACK  —  the OLD localStorage save box, kept for when there's no
+//  server. Single-user, this-computer-only. Accounts simply don't apply here.
+// ============================================================================
+const LEVELS_KEY = "coinquest-levels";
+const LEGACY_KEY = "coinquest-level";
+
+function localReadStore() {
+  try {
+    const obj = JSON.parse(localStorage.getItem(LEVELS_KEY) || "{}");
+    return (obj && typeof obj === "object") ? obj : {};
+  } catch (e) { return {}; }
+}
+function localWriteStore(store) {
+  localStorage.setItem(LEVELS_KEY, JSON.stringify(store));
+}
+// Rescue a level made with the very first (single-level) editor, just once.
+function localMigrateLegacy(store) {
+  if (Object.keys(store).length > 0) return;
+  try {
+    const tiles = JSON.parse(localStorage.getItem(LEGACY_KEY) || "[]");
+    if (!Array.isArray(tiles) || tiles.length === 0) return;
+    const id = newLevelId(), t = Date.now();
+    store[id] = { id, name: "My First Level", pack: 0, tiles, created: t, updated: t };
+    localWriteStore(store);
+  } catch (e) { /* ignore a broken old save */ }
+}
+
+
+// ============================================================================
+//  THE PUBLIC HELPERS  —  what the home page / editor / game call
+// ============================================================================
 window.Levels = {
-  // Every level as a LIST, newest-saved first (handy for the home page).
+  // ---- start-up ------------------------------------------------------------
+  // Call this ONCE, with await, at the top of each page. It loads every level
+  // you can see (and who you are) into memory. If the server isn't there, it
+  // quietly switches to the offline localStorage box instead.
+  async load() {
+    try {
+      const state = await api("GET", "/api/state");
+      _offline = false;
+      _user = state.user || null;
+      _levels = {};
+      for (const lvl of state.levels) _levels[lvl.id] = normalize(lvl);
+    } catch (e) {
+      // No server — fall back to this-computer-only mode.
+      console.warn("No server found — running offline (levels saved on this computer only).");
+      _offline = true;
+      _user = null;
+      const store = localReadStore();
+      localMigrateLegacy(store);
+      _levels = {};
+      for (const lvl of Object.values(localReadStore())) _levels[lvl.id] = normalize(lvl);
+    }
+    return _user;
+  },
+
+  // Are we offline (no server)? The home page uses this to hide the login UI.
+  get offline() { return _offline; },
+
+  // Who's logged in? { id, username, isAdmin } or null. Always null offline.
+  me() { return _user; },
+
+  // Wait for every in-flight save to finish (call before leaving the page).
+  flush() { return _pending; },
+
+  // ---- reading (synchronous, from the in-memory copy) ----------------------
   all() {
-    migrateLegacy();
-    return Object.values(readStore()).map(normalize).sort((a, b) => (b.updated || 0) - (a.updated || 0));
+    return Object.values(_levels).map(normalize)
+      .sort((a, b) => (b.updated || 0) - (a.updated || 0));
   },
+  get(id) { return _levels[id] ? normalize(_levels[id]) : null; },
 
-  // One level by id, or null if it's not there.
-  get(id) {
-    return normalize(readStore()[id] || null);
-  },
-
-  // Make and save a brand-new (empty) level. Returns the new level object.
-  // `extra` lets the home page pre-set fields like { section: "main" } when the
-  // owner makes a new MAIN level — anything you don't pass gets a sane default.
+  // ---- writing (updates memory now, saves to the server in the background) --
+  // Make and remember a brand-new (empty) level. Returns it straight away so
+  // callers can keep working; the save happens behind the scenes.
   create(name, pack = 0, extra = {}) {
-    const store = readStore();
-    const id = newLevelId();
-    const now = Date.now();
-    const level = normalize({ id, name: name || "My Level", pack, tiles: [], created: now, updated: now, ...extra });
-    store[id] = level;
-    writeStore(store);
+    const id = newLevelId(), t = Date.now();
+    const level = normalize({
+      id, name: name || "My Level", pack, tiles: [],
+      created: t, updated: t,
+      owner: _user ? _user.id : null,
+      status: "in-dev", section: "community",
+      ...extra,
+    });
+    _levels[id] = level;
+    this._save(level);
     return level;
   },
 
-  // Save (overwrite) a level. Pass the whole level object. Stamps "updated".
+  // Save (overwrite) a level. Pass the whole level object.
   put(level) {
     if (!level || !level.id) return;
-    const store = readStore();
     level.updated = Date.now();
     if (!level.created) level.created = level.updated;
-    store[level.id] = level;
-    writeStore(store);
+    _levels[level.id] = normalize(level);
+    this._save(level);
   },
 
-  // Change just a level's name (used by the home page's rename button).
+  // Change just a level's name.
   rename(id, name) {
-    const store = readStore();
-    if (store[id]) { store[id].name = name; store[id].updated = Date.now(); writeStore(store); }
+    const lvl = _levels[id];
+    if (lvl) { lvl.name = name; this.put(lvl); }
   },
 
   // Throw a level away for good.
   remove(id) {
-    const store = readStore();
-    delete store[id];
-    writeStore(store);
+    delete _levels[id];
+    if (_offline) {
+      const store = localReadStore(); delete store[id]; localWriteStore(store);
+    } else {
+      _queue(() => api("DELETE", "/api/levels/" + encodeURIComponent(id)));
+    }
   },
 
-  // A unique-ish default name like "My Level 3" so new levels don't all clash.
-  suggestName() {
-    const n = Object.keys(readStore()).length + 1;
-    return "My Level " + n;
+  // The actual "send this level somewhere safe" step, used by create/put.
+  _save(level) {
+    if (_offline) {
+      const store = localReadStore(); store[level.id] = level; localWriteStore(store);
+    } else {
+      _queue(() => api("PUT", "/api/levels/" + encodeURIComponent(level.id), { level }));
+    }
   },
+
+  // ---- accounts (no-ops when offline) --------------------------------------
+  async signup(username, password, invite, adminSecret) {
+    const out = await api("POST", "/api/signup", { username, password, invite, adminSecret });
+    _user = out.user; await this.load(); return _user;
+  },
+  async login(username, password) {
+    const out = await api("POST", "/api/login", { username, password });
+    _user = out.user; await this.load(); return _user;
+  },
+  async logout() {
+    await api("POST", "/api/logout"); _user = null; await this.load();
+  },
+  async deleteAccount() {
+    await api("DELETE", "/api/account"); _user = null; await this.load();
+  },
+
+  // ---- little helpers ------------------------------------------------------
+  // A unique-ish default name like "My Level 3".
+  suggestName() { return "My Level " + (Object.keys(_levels).length + 1); },
 
   newLevelId,
-  DIFFICULTIES,   // ["easy","medium","hard"] — the home page's Settings dropdown uses this
+  DIFFICULTIES,
 };

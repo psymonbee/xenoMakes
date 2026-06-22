@@ -8,3 +8,6 @@ node_modules/
 .claude/settings.local.json
 .DS_Store
 *.log
+
+# The shared levels + accounts database (lives on the server, never in git).
+data/

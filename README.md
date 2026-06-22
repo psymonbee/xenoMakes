@@ -30,11 +30,12 @@ This runs a friendly helper (`setup.mjs`) that:
 - checks that **Node.js** is installed (the program that runs the local server),
 - explains that the game library **Kaplay** comes from the internet (nothing to
   install for that),
-- runs **`npm install`** to download **`serve`** — a tiny local web server —
-  into a `node_modules` folder. Watch the packages download!
+- runs **`npm install`** to download the bits the server needs (a little web
+  server + a small database) into a `node_modules` folder.
 
-> Why a server at all? Browsers refuse to load the picture files from a plain
-> `file://` path, so we need a little server to hand them over. That's all it does.
+> Why a server at all? Two reasons now: browsers refuse to load the picture files
+> from a plain `file://` path, AND the server is what **saves levels for everyone
+> to share** (in a tiny SQLite database). See `DEPLOY_DESIGN.md` for the whole story.
 
 **3. Play!**
 
@@ -51,6 +52,28 @@ to play.
 
 > Don't have Node.js yet? Install it first from **https://nodejs.org** (pick the
 > "LTS" version), then come back to step 2.
+
+> Just want the old "files only" server with no accounts/saving? Run
+> `npm run start:static` instead — the game falls back to saving levels on this
+> computer only.
+
+---
+
+## ☁️ Putting it online (Coolify)
+
+The game now has a tiny server (`server.js`) that saves levels + accounts in one
+SQLite file, so it can be shared online. To deploy on **Coolify**:
+
+1. Point Coolify at this repo — it uses the **`Dockerfile`** automatically.
+2. **Mount a persistent volume at `/app/data`.** This is the important bit — it's
+   where the database lives, and without it every redeploy wipes all the levels.
+3. Set these **environment variables** in Coolify (so no secrets live in the code):
+   - `INVITE_CODE` — the word people must type to sign up (keeps it to friends).
+   - `ADMIN_SECRET` — the word that turns a new account into an ⭐ admin.
+   - `COOKIE_SECURE=1` — login cookies become https-only (Coolify serves https).
+
+See **`DEPLOY_DESIGN.md`** for the full design, the privacy/safety thinking, and
+how accounts + the in-dev/published filter work.
 
 ---
 

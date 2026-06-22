@@ -3,6 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <!-- Please don't list this kids' game in search engines (see DEPLOY_DESIGN.md §9). -->
+  <meta name="robots" content="noindex, nofollow" />
   <title>Level Designer — Coin Quest</title>
   <style>
     /* Same dark room as the game, so the canvas pops in the middle. */
@@ -32,7 +34,15 @@
   <!-- Load the shared multi-level "save box" (home page, editor + game all use it). -->
   <script src="levels.js"></script>
 
-  <!-- Load OUR level-designer code. -->
-  <script src="editor.js"></script>
+  <!-- Load OUR level-designer code. FIRST we load all the levels (from the
+       server, or this computer if there's no server), THEN we run the editor —
+       so it can find the level you're editing straight away. -->
+  <script>
+    window.Levels.load().then(() => {
+      const s = document.createElement("script");
+      s.src = "editor.js";
+      document.body.appendChild(s);
+    });
+  </script>
 </body>
 </html>

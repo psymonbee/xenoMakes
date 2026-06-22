@@ -3,6 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <!-- Please don't list this kids' game in search engines (see DEPLOY_DESIGN.md §9). -->
+  <meta name="robots" content="noindex, nofollow" />
   <title>Coin Quest — a Kaplay platformer</title>
   <style>
     /* Let the game canvas fill the whole browser window. */
@@ -37,7 +39,16 @@
   <!-- Load the shared multi-level "save box" (home page, editor + game all use it). -->
   <script src="levels.js"></script>
 
-  <!-- 2) Load OUR game code. Everything you tweak lives in main.js. -->
-  <script src="main.js"></script>
+  <!-- 2) Load OUR game code. Everything you tweak lives in main.js.
+       FIRST we load all the levels (from the server, or this computer if there's
+       no server), THEN we run the game — so main.js can read the level to play
+       straight away, exactly like it always has. -->
+  <script>
+    window.Levels.load().then(() => {
+      const s = document.createElement("script");
+      s.src = "main.js";
+      document.body.appendChild(s);
+    });
+  </script>
 </body>
 </html>

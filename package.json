@@ -5,7 +5,13 @@
   "description": "Coin Quest — a tiny Kaplay platformer plus a drag-and-drop level designer.",
   "scripts": {
     "setup": "node setup.mjs",
-    "start": "serve . -l 8080"
+    "start": "node server.js",
+    "start:static": "serve . -l 8080"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "better-sqlite3": "^11.8.1",
+    "bcryptjs": "^2.4.3"
   },
   "devDependencies": {
     "serve": "^14.2.4"
