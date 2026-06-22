@@ -17,17 +17,27 @@ and beginner-friendly**. Explain *why*, not just *what*.
 
 ## Where things live
 ```
-index.html      ← loads Kaplay (CDN), palette.js, and main.js
+home.html       ← loads palette.js + levels.js + home.js (no Kaplay needed)
+home.js         ← THE HOME PAGE. A gallery of saved levels: each card draws a
+                  little screenshot of the level's START on a <canvas> (straight
+                  from its tile data), with play / edit / delete + "New blank
+                  level" (-> editor?new=1).
+index.html      ← loads Kaplay (CDN), palette.js, levels.js, and main.js
 main.js         ← THE GAME. All gameplay + tweakable SETTINGS live here.
-                  Can also PLAY a designed level: opening with "?play=1" builds
-                  the level saved by the editor (localStorage "coinquest-level").
-editor.html     ← loads Kaplay (CDN), palette.js, and editor.js
+                  Can also PLAY a designed level: "?play=<id>" builds that saved
+                  level; the old "?play=1" still plays the legacy single level.
+editor.html     ← loads Kaplay (CDN), palette.js, levels.js, and editor.js
 editor.js       ← THE LEVEL DESIGNER. Drag-and-drop builder with a left drawer,
-                  edge/stack snapping, and a paint/fill selection. Saves to
-                  localStorage and has a "Play my level" button (-> ?play=1).
+                  edge/stack snapping, and a paint/fill selection. Edits ONE
+                  named level chosen by "?level=<id>" ("?new=1" starts a fresh
+                  one); saves via levels.js, plus a "Play my level" button.
 palette.js      ← Shared sprite list (categories + sizes + paths). The ONE place
                   both the editor and game agree on which sprites exist. Edit
-                  here to add/remove sprites available in the drawer + game.
+                  here to add/remove sprites available in the drawer + game. A
+                  pack marked "hidden:true" (e.g. Classic) still loads its art
+                  but stays OUT of the editor's pack-picker.
+levels.js       ← Shared "save box" (window.Levels): all named levels live in
+                  localStorage "coinquest-levels". Loaded by home, editor + game.
 assets/         ← Kenney sprites (CC0), split into subfolders:
   characters/   ← player sprites (p1/p2/p3)
   tiles/        ← ground, platforms, boxes, props

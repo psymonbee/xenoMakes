@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Coin Quest — My Levels</title>
+  <style>
+    /* -------------------------------------------------------------------------
+       THE HOME PAGE  —  a gallery of every level you've made.
+       Plain HTML + CSS (no game engine needed here). The level pictures are
+       drawn onto little <canvas> cards by home.js from each level's saved tiles.
+    ------------------------------------------------------------------------- */
+    :root {
+      --bg1: #1b2740;            /* page background, top    */
+      --bg2: #0f1626;            /* page background, bottom */
+      --card: #223150;           /* a card's panel colour   */
+      --card-edge: #36507e;      /* a card's border         */
+      --accent: #46b06a;         /* the friendly green      */
+      --accent-bright: #5fd089;
+      --ink: #ffffff;
+      --ink-dim: #9fb2d0;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+      color: var(--ink);
+      background: linear-gradient(160deg, var(--bg1), var(--bg2));
+    }
+
+    /* The bar across the top: the title + the big "new level" button. */
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 22px clamp(16px, 4vw, 48px);
+      flex-wrap: wrap;
+    }
+    header h1 { margin: 0; font-size: clamp(24px, 4vw, 34px); }
+    header h1 .coin { filter: drop-shadow(0 2px 4px rgba(0,0,0,.4)); }
+    header p { margin: 4px 0 0; color: var(--ink-dim); font-size: 15px; }
+
+    /* The green "New blank level" button (and the same style for card buttons). */
+    .btn {
+      border: none;
+      border-radius: 12px;
+      padding: 12px 20px;
+      font-size: 16px;
+      font-weight: bold;
+      color: #fff;
+      background: var(--accent);
+      cursor: pointer;
+      transition: transform .12s ease, background .12s ease, box-shadow .12s ease;
+      box-shadow: 0 6px 18px rgba(70, 176, 106, .35);
+    }
+    .btn:hover { background: var(--accent-bright); transform: translateY(-2px); box-shadow: 0 10px 24px rgba(70,176,106,.5); }
+    .btn:active { transform: translateY(0); }
+    .btn.small { padding: 8px 12px; font-size: 14px; box-shadow: none; }
+    .btn.grey  { background: #43568a; box-shadow: none; }
+    .btn.grey:hover { background: #51699f; }
+    .btn.danger { background: #b0464a; box-shadow: none; }
+    .btn.danger:hover { background: #cc5559; }
+
+    /* The grid that holds all the level cards. */
+    #grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+      gap: 22px;
+      padding: 8px clamp(16px, 4vw, 48px) 60px;
+    }
+
+    /* ONE level card. The glow is the box-shadow; hover lifts it higher. */
+    .card {
+      background: var(--card);
+      border: 1px solid var(--card-edge);
+      border-radius: 16px;
+      overflow: hidden;
+      box-shadow: 0 8px 22px rgba(0, 0, 0, .35);
+      transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease;
+    }
+    .card:hover {
+      transform: translateY(-6px);
+      border-color: #6ea0ff;
+      /* a soft blue glow so the card lifts off the page */
+      box-shadow: 0 16px 34px rgba(0, 0, 0, .45), 0 0 22px rgba(110, 160, 255, .55);
+    }
+
+    /* The picture area: the canvas screenshot + the play-button overlay. */
+    .thumb {
+      position: relative;
+      width: 100%;
+      aspect-ratio: 16 / 9;
+      background: #87ceeb;            /* sky blue, in case the canvas is slow */
+      cursor: pointer;
+      display: block;
+    }
+    .thumb canvas { width: 100%; height: 100%; display: block; image-rendering: pixelated; }
+
+    /* The round ▶ play button floating in the middle of the picture. */
+    .play {
+      position: absolute;
+      inset: 0;
+      margin: auto;
+      width: 64px; height: 64px;
+      border-radius: 50%;
+      background: rgba(20, 28, 46, .55);
+      border: 3px solid rgba(255, 255, 255, .9);
+      color: #fff;
+      font-size: 26px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding-left: 5px;             /* nudge the triangle to look centred */
+      transition: transform .15s ease, background .15s ease;
+      pointer-events: none;          /* clicks fall through to the .thumb */
+    }
+    .card:hover .play { transform: scale(1.15); background: var(--accent); border-color: #fff; }
+
+    /* The little "empty level" note when a card has nothing in it yet. */
+    .emptytag {
+      position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+      color: #2b3d5e; font-weight: bold; font-size: 18px; pointer-events: none;
+    }
+
+    /* The strip under the picture: the name + edit/delete buttons. */
+    .card .info { padding: 12px 14px 14px; }
+    .card .name { font-size: 18px; font-weight: bold; margin: 0 0 10px; word-break: break-word; }
+    .card .row { display: flex; gap: 8px; }
+    .card .row .btn { flex: 1; }
+
+    /* The friendly message shown when you have no levels yet. */
+    #empty {
+      text-align: center;
+      color: var(--ink-dim);
+      padding: 60px 20px;
+      font-size: 18px;
+      line-height: 1.6;
+    }
+    #empty.hide { display: none; }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1><span class="coin">🪙</span> Coin Quest — My Levels</h1>
+      <p>Pick a level to play or edit, or start a brand-new one.</p>
+    </div>
+    <button class="btn" id="newBtn">➕ New blank level</button>
+  </header>
+
+  <!-- Shown only when there are no saved levels yet. -->
+  <div id="empty" class="hide">
+    You haven't made any levels yet.<br />
+    Click <b>➕ New blank level</b> to start building!
+  </div>
+
+  <!-- home.js fills this with one card per saved level. -->
+  <div id="grid"></div>
+
+  <!-- The shared sprite registry + the multi-level "save box". home.js needs both
+       (the registry to know each sprite's picture + size, the save box to list
+       the levels). The pack manifest loads first, exactly like the other pages. -->
+  <script src="assets/packs/new-platformer/pack.js"></script>
+  <script src="palette.js"></script>
+  <script src="levels.js"></script>
+  <script src="home.js"></script>
+</body>
+</html>

@@ -39,6 +39,10 @@
 const BASE_PACK = {
   id: "base",
   label: "Classic",
+  // hidden:true keeps this pack OUT of the editor's pack-picker (we build with
+  // the "Standard" pack now). Its sprites still load, so any OLD level that used
+  // classic tiles keeps rendering — we just don't offer it as a build choice.
+  hidden: true,
   prefix: "",                              // no prefix → plain names like "grassMid"
   root: "assets",                          // files live at assets/<folder>/<name>.png
   sizes: { tileW: 70, tileH: 70, charW: 66, charH: 92 },
@@ -174,6 +178,7 @@ window.RESET_IDS = window.ROLES.reset;
 window.PACKS = ALL_PACKS.map((pack) => ({
   id: pack.id,
   label: pack.label,
+  hidden: !!pack.hidden,                    // editor skips hidden packs in its picker
   sizes: pack.sizes,
   categories: pack.categories.map((cat) => ({
     name: cat.name,

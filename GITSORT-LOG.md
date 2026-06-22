@@ -13,6 +13,27 @@ Newest entries are at the top.
 
 ---
 
+## 2026-06-22 01:05 — ✅ Synced fine
+- Saved Zac's work: 1 file committed (b3c9af4) — pinned the in-app preview to
+  port 8080 (`.claude/launch.json`) so it shares one localStorage box with
+  `npm start` (saved levels show up no matter which server is running)
+- GitHub had nothing new (1 ahead, 0 behind), so no merge was needed
+- Pushed everything to GitHub
+- Note for Simon: run only ONE server on 8080 at a time. If the preview says
+  "Port 8080 is in use", just stop the other server first.
+
+## 2026-06-22 00:42 — ✅ Synced fine
+- Saved Zac's work: 12 files committed (a9d3275) — new home page (home.html/
+  home.js), multi-level saving (levels.js), editor + game updates, and the
+  Classic→hidden / "Standard" rename
+- GitHub had nothing new (1 ahead, 0 behind), so no merge was needed
+- Pushed everything to GitHub
+
+## 2026-06-21 23:13 — ✅ Already in sync
+- Nothing to save (working tree was clean)
+- Compared with GitHub: `0 0` — local `main` and `origin/main` already match
+- Nothing to pull, nothing to push
+
 <!-- gitsort adds new entries directly below this line -->
 
 ## 2026-06-21 23:04 — ✅ Synced fine

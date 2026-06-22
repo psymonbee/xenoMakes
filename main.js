@@ -68,16 +68,25 @@ loadSprite("cloud",       "assets/items/cloud1.png");        // fluffy cloud
 // ----------------------------------------------------------------------------
 //  LEVEL DESIGNER HOOK-UP  —  can we play a level the editor made?
 // ----------------------------------------------------------------------------
-//  The level designer (editor.html) saves your creation in the browser. If you
-//  press its "Play" button, it opens this page with "?play=1" in the address,
-//  which tells us to build YOUR level instead of the built-in one below.
-const PLAY_DESIGN = new URLSearchParams(location.search).get("play") === "1";
+//  The level designer (editor.html) and the home page (home.html) save your
+//  creations in the browser. They open this page with "?play=<id>" in the
+//  address, which tells us to build THAT saved level instead of the built-in one
+//  below. ("?play=1" is the old single-level form — we still understand it.)
+const PLAY_ID = new URLSearchParams(location.search).get("play");
+const PLAY_DESIGN = PLAY_ID != null;       // any ?play=… means "play a saved level"
 
-let DESIGN = null;  // your saved level (a list of {id, x, y}), or null
+let DESIGN = null;     // your saved level (a list of {id, x, y, …}), or null
 if (PLAY_DESIGN) {
   try {
-    const saved = JSON.parse(localStorage.getItem("coinquest-level") || "[]");
-    if (saved.length > 0) DESIGN = saved;
+    if (PLAY_ID === "1") {
+      // Old form: the single level saved under the legacy key.
+      const saved = JSON.parse(localStorage.getItem("coinquest-level") || "[]");
+      if (saved.length > 0) DESIGN = saved;
+    } else {
+      // New form: a named level from the shared "save box" (levels.js).
+      const lvl = window.Levels.get(PLAY_ID);
+      if (lvl && lvl.tiles && lvl.tiles.length > 0) DESIGN = lvl.tiles;
+    }
   } catch (e) {
     console.warn("Could not read the designed level:", e);
   }
@@ -778,10 +787,11 @@ onKeyPress("r", () => {
   go("game");
 });
 
-// When playing a designed level, show a hint and let you pop back to the editor.
+// When playing a designed level, show a hint and let you pop back to the editor
+// (for THIS level) or out to the home page.
 if (DESIGN) {
   add([
-    text("Press E to edit  •  R to restart", { size: 22 }),
+    text("Press E to edit  •  H for home  •  R to restart", { size: 22 }),
     pos(width() - 24, 24),
     anchor("topright"),
     fixed(),
@@ -789,7 +799,13 @@ if (DESIGN) {
     color(255, 255, 255),
     outline(4, rgb(0, 0, 0)),
   ]);
-  onKeyPress("e", () => { window.location.href = "editor.html"; });
+  // E re-opens the editor on the exact level we're playing (if we know its id).
+  // We use the clean "editor?level=…" form (no ".html"): our local server drops
+  // the "?…" off a ".html" link during its redirect, but keeps it off this form.
+  onKeyPress("e", () => {
+    window.location.href = (PLAY_ID && PLAY_ID !== "1") ? ("editor?level=" + PLAY_ID) : "editor";
+  });
+  onKeyPress("h", () => { window.location.href = "home"; });
 }
 
 
