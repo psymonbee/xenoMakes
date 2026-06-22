@@ -109,6 +109,20 @@ if (DESIGN) {
     const jumpName = a.name.replace("_front", "_jump");
     loadSprite(id.replace("_front", "_jump"), `${a.root}/${a.folder}/${jumpName}.png`);
   }
+  // Interactive tiles (springs, "?" blocks, levers, buttons, doors) have a
+  // SECOND picture for their "after" look. Load it too, so we can swap to it at
+  // runtime. window.COMPANION[id] is that picture's id (set up in palette.js).
+  for (const id of ids) {
+    const after = window.COMPANION[id];
+    if (after && window.ASSET_INFO[after]) loadSprite(after, window.spritePath(after));
+  }
+  // "?" blocks pop a coin when bumped. The level might have a "?" block but no
+  // loose coins, so make sure a matching coin picture is loaded for the pop.
+  for (const id of ids) {
+    if (!window.ROLES.coinblock.has(id)) continue;
+    const coinId = window.coinFor(window.ASSET_INFO[id].pack);
+    if (coinId && window.ASSET_INFO[coinId]) loadSprite(coinId, window.spritePath(coinId));
+  }
 }
 
 
@@ -126,6 +140,16 @@ const HAZARD_IDS = window.ROLES.hazard;
 const PLAYER_IDS = window.ROLES.player;
 const FLAG_IDS   = window.ROLES.flag;
 const SPRING_IDS = window.ROLES.spring;   // bouncy springs that fling you upward
+// The rest of the INTERACTION SET (see palette.js): "?" coin blocks, and the
+// lever/button/door trio. These tiles all behave the same in ANY art pack,
+// because palette.js sorts each pack's sprites into these role sets for us.
+const COINBLOCK_IDS = window.ROLES.coinblock; // "?" blocks: head-bump for a coin
+const LEVER_IDS  = window.ROLES.lever;        // levers: touch to flip every door
+const BUTTON_IDS = window.ROLES.button;       // buttons: stand on to flip every door
+const DOOR_IDS   = window.ROLES.door;         // doors: solid walls until a switch opens them
+// window.COMPANION[id] = the "other look" for an interactive tile (squished
+// spring, spent "?" block, flipped lever, pressed button, open door).
+const COMPANION  = window.COMPANION || {};
 // RESET zones: INVISIBLE blocks that send the player back to the start when
 // touched. In the GAME you can't see them at all; in the level designer they
 // show as a red outline so you know where you put them.
@@ -305,8 +329,32 @@ function addDesignTile(id, x, y, angle = 0, flipX = false, flipY = false, path =
     o = add([pic, ...common, area(), "hazard"]);  // touching = respawn
   } else if (SPRING_IDS.has(id)) {
     // A bouncy spring! It's solid so you can stand on it, and the "spring" tag
-    // lets the bounce code (down in the scene) fling you up when you touch it.
-    o = add([pic, ...common, area(), body({ isStatic: true }), "spring"]);
+    // lets the bounce code (down in the scene) fling you up. We remember its two
+    // pictures so we can squish it down and pop it back up when bounced.
+    o = add([pic, ...common, area(), body({ isStatic: true }), "solid", "spring",
+      { upName: id, downName: COMPANION[id] || id, power: SPRING_FORCE }]);
+  } else if (COINBLOCK_IDS.has(id)) {
+    // A "?" coin block. Solid like a normal block (stand on top, blocks you from
+    // below) but the "coinblock" tag lets the head-bump rule pay out a coin the
+    // first time you hit it from underneath. We remember its spent picture, a
+    // "used" flag so it only pays once, and which coin to pop.
+    o = add([pic, ...common, area(), body({ isStatic: true }), "solid", "coinblock",
+      { usedName: COMPANION[id] || id, used: false, popCoin: window.coinFor(a.pack) }]);
+  } else if (LEVER_IDS.has(id)) {
+    // A lever. Not solid (you walk through it); touching it flips every door.
+    // offName/onName are its two pictures (resting vs flipped over).
+    o = add([pic, ...common, area(), "lever",
+      { offName: id, onName: COMPANION[id] || id, lastFlip: -999 }]);
+  } else if (BUTTON_IDS.has(id)) {
+    // A button. Not solid; standing on it flips every door — same idea as a
+    // lever, just an up vs pressed-down look.
+    o = add([pic, ...common, area(), "button",
+      { offName: id, onName: COMPANION[id] || id, lastFlip: -999 }]);
+  } else if (DOOR_IDS.has(id)) {
+    // A door. Starts CLOSED = solid (a wall you can't pass). A lever or button
+    // opens it: setDoorOpen() swaps the picture and removes/restores the wall.
+    o = add([pic, ...common, area(), body({ isStatic: true }), "door",
+      { closedName: id, openName: COMPANION[id] || id, opened: false }]);
   } else if (isSolidId(id)) {
     // Stand on it. If it's a slope, give it a triangle hitbox that matches the
     // art — mirrored to match a flipped picture; otherwise a normal square
@@ -519,7 +567,7 @@ player.onUpdate(() => {
 //  THE SCORE  —  count coins and show them in the top-left corner
 // ----------------------------------------------------------------------------
 let score = 0;
-const totalCoins = get("coin", { recursive: true }).length; // coins at the start
+let totalCoins = get("coin", { recursive: true }).length; // coins at the start (a "?" block can add more)
 
 // fixed() pins this text to the screen so it doesn't scroll with the world.
 const scoreLabel = add([
@@ -556,13 +604,89 @@ player.onCollide("hazard", () => {
   player.vel = vec2(0, 0);
 });
 
-// BOING! Landing on a spring flings the player high into the air. We use
-// player.jump(), which gives an upward burst no matter how you touched it — so
-// it works whether you walked into it, fell onto it, or hopped on top.
-player.onCollide("spring", () => {
-  player.jump(SPRING_FORCE);
+// BOING! Landing on a spring flings the player high into the air. It only fires
+// when you're FALLING onto it (vel.y > 0), not when you brush its side running
+// past. We squish it to its "down" picture, then pop it back up a moment later.
+player.onCollide("spring", (spring) => {
+  if (player.vel.y <= 0) return;                 // not landing on it — ignore
+  player.jump(spring.power);                     // BOING — much higher than a normal jump
   playSfx(SFX.jumpHigh ? "jumpHigh" : "jump");   // the bigger "boing" if we have it
+  spring.use(sprite(spring.downName));           // squish down…
+  wait(0.15, () => { if (spring.exists()) spring.use(sprite(spring.upName)); }); // …pop back up
 });
+
+// "?" COIN BLOCKS — head-bump one from below for a coin (Mario style). Only a
+// real head-bump counts: the player must be moving UP and be BELOW the block.
+player.onCollide("coinblock", (block) => {
+  if (player.vel.y >= 0) return;                 // not moving up — not a bump
+  if (player.pos.y <= block.pos.y) return;       // we're above it — that's just standing on top
+  if (block.used) { playSfx("bump"); return; }   // already spent — dull "thud"
+
+  block.used = true;
+  playSfx("bump");                               // the "donk" of the bonk
+  playSfx("coin");                               // and the cheerful coin "ding"
+
+  // A coin pops out of the top, floats up and fades away — just for show; the
+  // point is added below. (popCoin is a coin picture matched to the block's pack.)
+  if (block.popCoin) {
+    add([
+      sprite(block.popCoin), pos(block.pos.x, block.pos.y - block.height / 2),
+      anchor("center"), move(UP, 140), opacity(1), lifespan(0.5, { fade: 0.3 }), z(2000),
+    ]);
+  }
+
+  // Add the point to BOTH score and target, so "X / Y" stays sensible and
+  // collecting everything can still win.
+  score += 1;
+  totalCoins += 1;
+  scoreLabel.text = "Coins: " + score + " / " + totalCoins;
+
+  // The classic "bump up and settle back" nudge.
+  const restY = block.pos.y;
+  block.pos.y = restY - 10;
+  tween(block.pos.y, restY, 0.15, (y) => (block.pos.y = y), easings.easeOutQuad);
+
+  block.use(sprite(block.usedName));             // swap to the spent picture
+});
+
+
+// ----------------------------------------------------------------------------
+//  DOORS, LEVERS & BUTTONS  —  flip a switch to open every door
+// ----------------------------------------------------------------------------
+// A door is a solid WALL when closed and an open doorway you can walk through
+// when open. "Open" just means: show the open picture and take the wall away.
+function setDoorOpen(door, open) {
+  if (open === door.opened) return;              // already in that state
+  door.opened = open;
+  if (open) {
+    door.use(sprite(door.openName));
+    door.unuse("body");                          // remove the wall -> walk through
+  } else {
+    door.use(sprite(door.closedName));
+    door.use(body({ isStatic: true }));          // put the wall back
+  }
+}
+
+// ONE shared open/closed state for every door; a lever or button toggles it.
+let doorsOpen = false;
+function toggleDoors() {
+  doorsOpen = !doorsOpen;
+  for (const door of get("door", { recursive: true })) setDoorOpen(door, doorsOpen);
+}
+
+// Levers and buttons both flip all the doors when touched. The 0.4s guard stops
+// it flickering while you keep touching it.
+function makeSwitch(tag) {
+  player.onCollide(tag, (sw) => {
+    if (time() - sw.lastFlip < 0.4) return;
+    sw.lastFlip = time();
+    toggleDoors();
+    sw.use(sprite(doorsOpen ? sw.onName : sw.offName)); // show flipped / pressed look
+    playSfx("select");
+  });
+}
+makeSwitch("lever");
+makeSwitch("button");
 
 
 // ----------------------------------------------------------------------------

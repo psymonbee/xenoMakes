@@ -116,7 +116,7 @@ const BASE_PACK = {
 const ALL_PACKS = [BASE_PACK, ...(window.EXTRA_PACKS || [])];
 
 window.ASSET_INFO = {};
-window.ROLES = { player: new Set(), coin: new Set(), flag: new Set(), hazard: new Set(), reset: new Set(), solid: new Set(), spring: new Set() };
+window.ROLES = { player: new Set(), coin: new Set(), flag: new Set(), hazard: new Set(), reset: new Set(), solid: new Set(), spring: new Set(), coinblock: new Set(), lever: new Set(), button: new Set(), door: new Set() };
 
 // Per-pack list of "this name-prefix means solid ground" rules, keyed by pack id.
 const SOLID_PREFIXES = {};   // { packId: ["grass","dirt",…] }
@@ -167,6 +167,77 @@ for (const id of Object.keys(window.ASSET_INFO)) {
   const n = window.ASSET_INFO[id].name;
   if (n === "spring" || n === "springboardUp") window.ROLES.spring.add(id);
 }
+
+
+// ----------------------------------------------------------------------------
+//  THE INTERACTION SET  —  the growing library of "tiles that DO something"
+// ----------------------------------------------------------------------------
+//  Some tiles aren't just scenery — they REACT. A spring squishes and flings
+//  you up; a "?" block gives a coin and goes empty; a lever flips over; a button
+//  presses down; a door swings open. Each of these has TWO pictures: its resting
+//  look and its "after" look.
+//
+//  This is the ONE place that knows, per art pack, which tiles are interactive
+//  and what their two pictures are called. We list them as [resting, after]
+//  pairs of bare picture names. From this we:
+//    • add each resting tile to the right window.ROLES.<kind> set, and
+//    • record window.COMPANION[restingId] = the "after" picture's id.
+//  The game code (main.js) only ever reads those two things — it never needs to
+//  know any pack's filenames. So teaching a NEW pack these tricks, or inventing
+//  a brand-new interactive tile, is just adding a line here. The library grows
+//  without touching the game.
+const INTERACTIONS = {
+  // Classic Kenney "Base" pack (hidden now, but old levels may still use it).
+  base: {
+    spring:    [["springboardUp", "springboardDown"]],
+    coinblock: [["boxCoin", "boxCoin_disabled"]],
+    lever:     [["switchLeft", "switchRight"]],
+    button:    [["buttonRed", "buttonRed_pressed"]],
+    door:      [["door_closedTop", "door_openTop"], ["door_closedMid", "door_openMid"]],
+  },
+  // "New Platformer" / Standard pack — the one we build with now.
+  newplat: {
+    spring:    [["spring", "spring_out"]],
+    coinblock: [["block_coin", "block_empty"], ["block_exclamation", "block_empty"]],
+    lever:     [["lever_left", "lever_right"]],
+    button:    [["switch_red", "switch_red_pressed"], ["switch_blue", "switch_blue_pressed"],
+                ["switch_green", "switch_green_pressed"], ["switch_yellow", "switch_yellow_pressed"]],
+    door:      [["door_closed", "door_open"], ["door_closed_top", "door_open_top"]],
+  },
+};
+
+// window.COMPANION[restingId] = the id of its "after" picture (squished spring,
+// spent "?" block, flipped lever, pressed button, open door).
+window.COMPANION = {};
+for (const pack of ALL_PACKS) {
+  const defs = INTERACTIONS[pack.id];
+  if (!defs) continue;
+  for (const kind of ["spring", "coinblock", "lever", "button", "door"]) {
+    for (const [rest, after] of (defs[kind] || [])) {
+      const restId = NAME_TO_ID[pack.id][rest];
+      if (!restId) continue;                 // this pack doesn't have that tile — skip
+      const afterId = fullId(pack, after);
+      // The "after" picture might not be a placeable tile listed in the pack's
+      // categories (it's just an alternate look). If so, register it now using
+      // the resting tile's folder/size, so spritePath() + the loader can find it.
+      if (!window.ASSET_INFO[afterId]) {
+        const ra = window.ASSET_INFO[restId];
+        window.ASSET_INFO[afterId] = { pack: pack.id, name: after, folder: ra.folder, w: ra.w, h: ra.h, root: ra.root, bg: false, char: false };
+      }
+      window.ROLES[kind].add(restId);
+      window.COMPANION[restId] = afterId;
+    }
+  }
+}
+
+// A coin picture to "pop" out of a "?" block, matched to the block's own pack so
+// it looks right (a Standard coin for a Standard block, etc.). Returns a coin id
+// or null if the pack has no coin art.
+window.coinFor = (packId) => {
+  for (const id of window.ROLES.coin) if (window.ASSET_INFO[id] && window.ASSET_INFO[id].pack === packId) return id;
+  for (const id of window.ROLES.coin) return id;   // fall back to any coin at all
+  return null;
+};
 
 // Keep the old name some code still uses.
 window.RESET_IDS = window.ROLES.reset;
@@ -267,6 +338,9 @@ function computeLayer(id) {
   if (a.folder === "enemies") return "foes";        // slimes, snails, flies…
   if (window.ROLES.coin.has(id) || window.ROLES.flag.has(id)) return "items";
   if (window.ROLES.spring.has(id)) return "items";  // springs sit up with the items
+  if (window.ROLES.lever.has(id) || window.ROLES.button.has(id)) return "items"; // switches in front
+  if (window.ROLES.coinblock.has(id)) return "terrain"; // "?" blocks are solid blocks
+  if (window.ROLES.door.has(id)) return "terrain";  // doors are walls you pass when open
   if (window.isSolidId(id)) return "terrain";       // ground / platforms / blocks
   if (window.ROLES.hazard.has(id) || window.ROLES.reset.has(id)) return "terrain"; // lava, spikes, reset zones
   return "decoration";                              // bushes, signs, clouds…
