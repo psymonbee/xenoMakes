@@ -13,6 +13,14 @@ Newest entries are at the top.
 
 ---
 
+## 2026-06-22 — ✅ Synced fine (caught up to Simon's big integration)
+- Zac had nothing new to save (working tree clean)
+- GitHub was 0 ahead / 7 behind; fast-forwarded `main` (a1b74d3 → 2989107)
+- Pulled in Simon's integration: the interaction set (springs, "?" coin blocks,
+  levers, buttons, doors) on the Standard pack, editor click-to-place + foe-path fix,
+  and new `preview` / `ship` skills. No conflicts possible — Zac had no new commits.
+- Pushed the log entry back up
+
 ## 2026-06-22 20:01 — ✅ Big integration synced to main
 - Untangled the two diverged `main`s safely (no guessing, nothing lost):
   - Backed up the old local `main` to branch `backup/local-main-pre-sync-2026-06-22-1947`
