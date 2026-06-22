@@ -11,6 +11,16 @@ see what happened — especially when a merge conflict was found and *not* merge
 
 Newest entries are at the top.
 
+## 2026-06-22 21:45 — ✅ Synced fine
+- Saved work first: 1 commit (3b2459a) — server + accounts + shared levels (SQLite)
+  for online deploy (server.js, levels.js, home.js/html, editor guard, Dockerfile,
+  privacy.html, robots.txt, README + DEPLOY_DESIGN updates)
+- Diverged (1 ahead / 1 behind); pulled Simon's log entry; git auto-merged cleanly
+- Pushed everything to GitHub (now at 85c380c)
+- Backup rope: branch `backup/before-sync-2026-06-22-2145`
+  (auto-merges can look clean but still break the game — roll back here if needed:
+   `git reset --hard backup/before-sync-2026-06-22-2145`, then re-push carefully)
+
 ---
 
 ## 2026-06-22 — ✅ Synced fine (caught up to Simon's big integration)
