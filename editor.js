@@ -23,7 +23,9 @@
 // ----------------------------------------------------------------------------
 // (The grid step is no longer a fixed number — it follows the selected pack's
 //  tile size via gridStep(), so 70px Classic and 64px New tiles each line up.)
-const DRAWER_W  = 250;   // how wide the left drawer is, in pixels
+const DRAWER_W  = 250;   // a rough drawer width, used only to frame the camera at
+                         //  startup. The REAL, live drawer width comes from
+                         //  drawerW() (the HTML drawer can be wider on a tablet).
 const SNAP_DIST = 30;    // how close (px) a snap point must be to "grab" you
 const PAN_SPEED = 18;    // how fast the arrow keys scroll the world
 const DRAG_Z    = 660;   // a tile being dragged/painted floats above the artwork
@@ -76,9 +78,9 @@ const RESET_IDS = window.RESET_IDS;
 //  START KAPLAY  —  make the editor window
 // ----------------------------------------------------------------------------
 kaplay({
-  width: 1280,
-  height: 720,
-  letterbox: true,
+  // No fixed width/height (and no letterbox): the editor fills the whole browser
+  // window, so 1 screen pixel == 1 canvas pixel. That's what lets the HTML drawer
+  // (real buttons floating on top) line up exactly with the world behind it.
   background: [120, 170, 210],  // a calm blue "drawing board"
 });
 
@@ -112,7 +114,6 @@ for (const pack of EDITOR_ALL_PACKS) {   // load EVERY pack's art, even hidden o
 //  STATE  —  the few variables that describe "what's going on right now"
 // ----------------------------------------------------------------------------
 let activeCat = 0;                 // which category tab is open
-let scrollY   = 0;                 // how far the drawer list is scrolled
 let placed    = [];                // every sprite the user has dropped
 let drag      = null;              // current drag, or null. See startDrag().
 let cam       = vec2(0, 0);        // where the world camera is looking
@@ -140,16 +141,13 @@ let brushAngle = 0;
 let brushFlipX = false;
 let brushFlipY = false;
 
-// CLICK-TO-PLACE: as well as dragging a block out of the drawer, you can simply
-// CLICK a block to "arm" it (it lights up), then click squares in the world to
-// drop it. `armed` is the sprite id you've picked, or null. `pressThumb`
-// remembers a mouse-press on a thumbnail until we know whether it's a click
-// (arm it) or the start of a drag (the old drag-and-drop). `armedGhost` is a
-// faded preview tile that follows the cursor so you can see where it'll land.
+// CLICK-TO-PLACE: tap a block in the drawer to "arm" it (it lights up), then tap
+// squares in the world to drop it. `armed` is the sprite id you've picked, or
+// null. `armedGhost` is a faded preview tile that follows the cursor so you can
+// see where it'll land. (Dragging a thumbnail straight out of the HTML drawer
+// onto the canvas is a LATER stage; for now it's tap-to-arm, tap-to-place.)
 let armed      = null;   // full sprite id currently armed from the drawer, or null
-let pressThumb = null;   // { id, start } — a thumbnail press we haven't decided yet
 let armedGhost = null;   // faded preview of the armed block under the cursor
-const CLICK_DIST = 5;    // move more than this (px) and a press becomes a drag
 
 // WHAT DOES CLICKING DO FOR EACH KIND OF BLOCK? (keyed by the block's layer,
 // which palette.js already works out for every sprite). This is the one place
@@ -431,7 +429,7 @@ add([z(window.LAYERS.z.paths)]).onDraw(() => {
       pos: vec2(pathFoe.pos.x, pathFoe.pos.y), width: pathFoe.width, height: pathFoe.height,
       fill: false, outline: { width: 3, color: rgb(255, 230, 90) },
     });
-    if (mousePos().x >= DRAWER_W) {
+    if (mousePos().x >= drawerW()) {
       const last = pathFoe.path.points.length
         ? pathFoe.path.points[pathFoe.path.points.length - 1]
         : { x: pathFoe.pos.x, y: pathFoe.pos.y };
@@ -507,114 +505,13 @@ function snapPosition(targetX, targetY, w, h, exclude) {
 
 
 // ----------------------------------------------------------------------------
-//  DRAWER LAYOUT HELPERS  —  one source of truth for WHERE things are drawn,
-//  reused for both drawing AND clicking (so they can never disagree).
+//  A FEW SHARED CONSTANTS
 // ----------------------------------------------------------------------------
-const TITLE_H   = 44;   // height of the title bar at the very top
-const PACK_H    = 28;   // height of the pack-picker row (just under the title)
-const TAB_H     = 30;   // height of a category tab
-const CLEAR_H   = 40;   // height of the "Clear all" button at the bottom
-const COLS      = 3;    // thumbnails per row
-const PAD        = 8;   // gap between things
-
-// We only SHOW the pack-picker row when there's more than one pack to choose
-// from. With a single pack (Classic is hidden), the row would just be one
-// pointless button — so we hide it and give that space back to the sprite list.
-function showPackRow() { return PACKS.length > 1; }
-
-// The "🏠 Home" button, tucked into the right side of the title bar.
-function homeRect() {
-  const w = 64;
-  return { x: DRAWER_W - w - PAD, y: 8, w, h: TITLE_H - 16 };
-}
-
-// The clickable level-NAME area on the left of the title bar (click to rename).
-function nameRect() {
-  return { x: PAD, y: 8, w: homeRect().x - PAD * 2, h: TITLE_H - 16 };
-}
-
-// The pack-picker buttons (one per art pack), in a row under the title.
-function packRects() {
-  if (!showPackRow()) return [];
-  const out = [];
-  const bw = (DRAWER_W - PAD * (PACKS.length + 1)) / PACKS.length;
-  let x = PAD;
-  const y = TITLE_H + PAD;
-  for (let i = 0; i < PACKS.length; i++) {
-    out.push({ i, x, y, w: bw, h: PACK_H, label: PACKS[i].label });
-    x += bw + PAD;
-  }
-  return out;
-}
-
-// The category tabs for the CURRENT pack (returns a screen-space rect for each).
-function tabRects() {
-  const out = [];
-  const list = cats();
-  // Start below the pack-picker row — or right under the title if that row is hidden.
-  let x = PAD, y = TITLE_H + PAD + (showPackRow() ? PACK_H + PAD : 0);
-  const tw = (DRAWER_W - PAD * (COLS + 1)) / COLS; // same width as 3 columns
-  for (let i = 0; i < list.length; i++) {
-    if (x + tw > DRAWER_W) { x = PAD; y += TAB_H + PAD; } // wrap to next row
-    out.push({ i, x, y, w: tw, h: TAB_H, label: list[i].name });
-    x += tw + PAD;
-  }
-  return out;
-}
-
-// Where the scrolling thumbnail list begins (just under the tabs).
-function listTop() {
-  const tabs = tabRects();
-  const last = tabs[tabs.length - 1];
-  return last.y + last.h + PAD;
-}
-
-// One screen-space rectangle per thumbnail in the active category.
-// (These already include the scroll offset, so some may be above/below view.)
-function cellRects() {
-  const out = [];
-  const items = cats()[activeCat].items;
-  const cw = (DRAWER_W - PAD * (COLS + 1)) / COLS;
-  const ch = cw + 14;                 // square thumb + a little label space
-  const top = listTop();
-  for (let k = 0; k < items.length; k++) {
-    const col = k % COLS;
-    const row = Math.floor(k / COLS);
-    const x = PAD + col * (cw + PAD);
-    const y = top + row * (ch + PAD) - scrollY;
-    out.push({ id: items[k], x, y, w: cw, h: ch });
-  }
-  return out;
-}
-
-// The "Clear all" button rectangle (pinned to the very bottom of the drawer).
-function clearRect() {
-  return { x: PAD, y: height() - CLEAR_H - PAD, w: DRAWER_W - PAD * 2, h: CLEAR_H };
-}
-
-// The "Play" button, sitting just above "Clear all".
-function playRect() {
-  return { x: PAD, y: clearRect().y - CLEAR_H - PAD, w: DRAWER_W - PAD * 2, h: CLEAR_H };
-}
-
-// The "Foe Paths" toggle, sitting just above "Play".
-function pathsRect() {
-  return { x: PAD, y: playRect().y - CLEAR_H - PAD, w: DRAWER_W - PAD * 2, h: CLEAR_H };
-}
-
-// Where the scrolling list ends (just above the three buttons).
-function listBottom() {
-  return pathsRect().y - PAD;
-}
-
-// How tall the full list is, used to limit scrolling.
-function listContentHeight() {
-  const n = cats()[activeCat].items.length;
-  const cw = (DRAWER_W - PAD * (COLS + 1)) / COLS;
-  const ch = cw + 14;
-  const rows = Math.ceil(n / COLS);
-  return rows * (ch + PAD);
-}
+//  The toolbox DRAWER down the left is now real HTML (see editor.html and the
+//  "HTML DRAWER" section further down), so we don't work out where to DRAW it
+//  here any more. The only chrome still painted on the canvas is the foe-path
+//  options panel on the right edge, which uses this one little spacing value.
+const PAD = 8;   // gap between things, in pixels
 
 // The FOE-PATH OPTIONS PANEL on the right edge (only shown when a foe is picked).
 // Returns the panel box plus one clickable rect per button, so the SAME function
@@ -649,160 +546,26 @@ function inRect(px, py, r) {
 
 
 // ----------------------------------------------------------------------------
-//  DRAW THE DRAWER  —  this object HAS fixed(), so it's drawn in screen space
-//  (it stays put while the world scrolls behind it).
+//  ON-CANVAS CHROME  —  the few bits still painted on the canvas (in screen
+//  space, so they stay put while the world scrolls behind them).
 // ----------------------------------------------------------------------------
+//  The toolbox DRAWER is now real HTML (see editor.html + the "HTML DRAWER"
+//  section below). The only things we still paint here are the help line along
+//  the bottom, the foe-path options panel on the right, and the rotation badge.
 const ui = add([fixed(), z(1000)]);
-
-// Draw the row of pack-picker buttons (the selected pack is highlighted).
-function paintPackRow(mx, my) {
-  for (const p of packRects()) {
-    const active = p.i === activePack;
-    const hot = inRect(mx, my, p);
-    drawRect({
-      pos: vec2(p.x, p.y), width: p.w, height: p.h, radius: 5,
-      color: active ? rgb(240, 170, 70) : (hot ? rgb(70, 84, 110) : rgb(54, 66, 90)),
-    });
-    drawText({
-      text: p.label, pos: vec2(p.x + p.w / 2, p.y + p.h / 2), size: 12,
-      anchor: "center", color: rgb(255, 255, 255), width: p.w - 6,
-    });
-  }
-}
 
 ui.onDraw(() => {
   const mx = mousePos().x, my = mousePos().y;
-  const listEnd = listBottom();
 
-  // The drawer panel background.
-  drawRect({ pos: vec2(0, 0), width: DRAWER_W, height: height(), color: rgb(28, 36, 52), opacity: 0.96 });
-
-  // Title bar: the level's NAME on the left (click to rename) + a Home button.
-  drawRect({ pos: vec2(0, 0), width: DRAWER_W, height: TITLE_H, color: rgb(44, 56, 78) });
-  const nr = nameRect();
-  const nameHot = inRect(mx, my, nr);
-  drawText({
-    text: "🧱 " + (currentLevel ? currentLevel.name : "Level"),
-    pos: vec2(nr.x, TITLE_H / 2), size: 16, anchor: "left",
-    width: nr.w, color: nameHot ? rgb(255, 235, 150) : rgb(255, 255, 255),
-  });
-  const hr = homeRect();
-  const homeHot = inRect(mx, my, hr);
-  drawRect({ pos: vec2(hr.x, hr.y), width: hr.w, height: hr.h, radius: 6, color: homeHot ? rgb(90, 160, 240) : rgb(60, 74, 102) });
-  drawText({ text: "🏠 Home", pos: vec2(hr.x + hr.w / 2, hr.y + hr.h / 2), size: 12, anchor: "center", color: rgb(255, 255, 255) });
-
-  // Pack-picker row (Classic / New Platformer / …).
-  paintPackRow(mx, my);
-
-  // Category tabs.
-  for (const t of tabRects()) {
-    const active = t.i === activeCat;
-    const hot = inRect(mx, my, t);
-    drawRect({
-      pos: vec2(t.x, t.y), width: t.w, height: t.h, radius: 5,
-      color: active ? rgb(90, 160, 240) : (hot ? rgb(70, 84, 110) : rgb(54, 66, 90)),
-    });
-    drawText({
-      text: t.label, pos: vec2(t.x + t.w / 2, t.y + t.h / 2), size: 13,
-      anchor: "center", color: rgb(255, 255, 255),
-    });
-  }
-
-  // The scrolling thumbnail grid. We only draw cells that are inside the
-  // list area; anything scrolled out of view is skipped.
-  for (const c of cellRects()) {
-    if (c.y + c.h < listTop() || c.y > listEnd) continue; // off-screen, skip
-
-    const hot = inRect(mx, my, c) && my > listTop() && my < listEnd;
-    const isArmed = c.id === armed;
-    // The armed block gets a bright green halo so you can see it's "picked up".
-    if (isArmed) {
-      drawRect({
-        pos: vec2(c.x - 3, c.y - 3), width: c.w + 6, height: c.h + 6, radius: 7,
-        color: rgb(90, 220, 120),
-      });
-    }
-    // Light thumbnail cells so the dark OUTLINES of blocks (stone, castle, etc.)
-    // stand out instead of blending into the dark drawer. Hovering brightens it.
-    drawRect({
-      pos: vec2(c.x, c.y), width: c.w, height: c.h, radius: 5,
-      color: isArmed ? rgb(255, 255, 255) : (hot ? rgb(255, 255, 255) : rgb(214, 221, 232)),
-    });
-
-    // Fit the sprite inside the cell, keeping its shape (no squishing).
-    const a = ASSET[c.id];
-    const box = c.w - 12;
-    const s = Math.min(box / a.w, box / a.h);
-    const dw = a.w * s, dh = a.h * s;
-    const dpos = vec2(c.x + c.w / 2 - dw / 2, c.y + 4 + (box - dh) / 2);
-
-    if (RESET_IDS.has(c.id)) {
-      // Reset zones are invisible in the game, so show them in the drawer as a
-      // red outlined box (matching how they look once placed in the world).
-      drawRect({
-        pos: dpos, width: dw, height: dh,
-        fill: false, outline: { width: 3, color: RESET_COLOR },
-      });
-    } else {
-      drawSprite({ sprite: c.id, pos: dpos, width: dw, height: dh });
-    }
-  }
-
-  // Cover the strip just under the tabs so scrolled thumbnails don't peek out.
-  drawRect({ pos: vec2(0, TITLE_H), width: DRAWER_W, height: listTop() - TITLE_H, color: rgb(28, 36, 52) });
-  // Redraw the pack row + tabs on top of that cover.
-  paintPackRow(mx, my);
-  for (const t of tabRects()) {
-    const active = t.i === activeCat;
-    const hot = inRect(mx, my, t);
-    drawRect({
-      pos: vec2(t.x, t.y), width: t.w, height: t.h, radius: 5,
-      color: active ? rgb(90, 160, 240) : (hot ? rgb(70, 84, 110) : rgb(54, 66, 90)),
-    });
-    drawText({
-      text: t.label, pos: vec2(t.x + t.w / 2, t.y + t.h / 2), size: 13,
-      anchor: "center", color: rgb(255, 255, 255),
-    });
-  }
-
-  // Cover the strip BELOW the list, so a thumbnail row that pokes past the
-  // bottom of the list can't show through behind the buttons (the buttons are
-  // drawn on top of this cover next).
-  drawRect({ pos: vec2(0, listEnd), width: DRAWER_W, height: height() - listEnd, color: rgb(28, 36, 52) });
-
-  // The "Foe Paths" toggle (turns path-drawing mode on/off).
-  const fr = pathsRect();
-  const fHot = inRect(mx, my, fr);
-  drawRect({
-    pos: vec2(fr.x, fr.y), width: fr.w, height: fr.h, radius: 6,
-    color: pathMode ? rgb(150, 90, 200) : (fHot ? rgb(90, 102, 130) : rgb(70, 84, 110)),
-  });
-  drawText({
-    text: "🚶 Foe Paths: " + (pathMode ? "ON" : "OFF"),
-    pos: vec2(fr.x + fr.w / 2, fr.y + fr.h / 2), size: 15, anchor: "center", color: rgb(255, 255, 255),
-  });
-
-  // The "Play" button (opens the game on whatever you've built).
-  const pr = playRect();
-  const playHot = inRect(mx, my, pr);
-  drawRect({ pos: vec2(pr.x, pr.y), width: pr.w, height: pr.h, radius: 6, color: playHot ? rgb(70, 185, 95) : rgb(55, 150, 80) });
-  drawText({ text: "▶  Play my level", pos: vec2(pr.x + pr.w / 2, pr.y + pr.h / 2), size: 15, anchor: "center", color: rgb(255, 255, 255) });
-
-  // The "Clear all" button.
-  const cr = clearRect();
-  const clearHot = inRect(mx, my, cr);
-  drawRect({ pos: vec2(cr.x, cr.y), width: cr.w, height: cr.h, radius: 6, color: clearHot ? rgb(200, 70, 70) : rgb(150, 55, 55) });
-  drawText({ text: "🗑  Clear all", pos: vec2(cr.x + cr.w / 2, cr.y + cr.h / 2), size: 15, anchor: "center", color: rgb(255, 255, 255) });
-
-  // A little help line along the bottom of the screen (right of the drawer).
+  // A little help line along the bottom of the screen (just right of the drawer).
   const help = pathMode
     ? (pathFoe
         ? "PATH MODE: click cells to lay this foe's route  •  right-click removes the last point  •  use the panel to set loop/speed/wake-up  •  ✓ Done when finished"
         : "PATH MODE: click a foe to start drawing where it walks  •  turn Foe Paths OFF to build normally again")
     : paint
     ? "PAINTING: move the mouse to size the rectangle  •  Q / E rotate  •  X / Y flip  •  left-click to fill it  •  right-click to cancel"
-    : "Drag a sprite out to paint  •  Q / E rotate  •  X / Y flip  •  [ / ] send back / bring forward  •  drag placed tiles to move  •  right-click to delete  •  arrows scroll";
-  drawText({ text: help, pos: vec2(DRAWER_W + 14, height() - 22), size: 13, color: rgb(255, 255, 255), opacity: 0.75 });
+    : "Tap a block then tap the world to place  •  Q / E rotate  •  X / Y flip  •  [ / ] send back / bring forward  •  drag placed tiles to move  •  right-click to delete  •  arrows scroll";
+  drawText({ text: help, pos: vec2(drawerW() + 14, height() - 22), size: 13, color: rgb(255, 255, 255), opacity: 0.75 });
 
   // The FOE-PATH OPTIONS PANEL (right edge) — only when a foe is selected.
   if (pathMode && pathFoe && pathFoe.path) {
@@ -846,6 +609,178 @@ ui.onDraw(() => {
     color: rgb(255, 255, 255), outline: { width: 3, color: rgb(0, 0, 0) },
   });
 });
+
+
+// ----------------------------------------------------------------------------
+//  THE HTML DRAWER  —  the toolbox down the left is REAL HTML (buttons + images)
+//  floating on top of the canvas (see editor.html). This is much nicer on a
+//  tablet than fake buttons painted on the canvas: the buttons are a comfy size
+//  to tap, and the thumbnail list scrolls with your finger for free.
+// ----------------------------------------------------------------------------
+//  The catch: a canvas redraws itself every frame, so the old drawer updated for
+//  free. HTML does NOT — so whenever we change something the drawer shows (the
+//  level name, the active pack/tab, the armed block, or the Foe-Paths toggle) we
+//  must call syncDrawer() by hand to refresh the labels and highlights.
+
+// Grab the bits of the page we set up in editor.html, so we can fill + wire them.
+const elDrawer   = document.getElementById("drawer");
+const elNameBtn  = document.getElementById("nameBtn");
+const elHomeBtn  = document.getElementById("homeBtn");
+const elPackRow  = document.getElementById("packRow");
+const elTabRow   = document.getElementById("tabRow");
+const elThumbs   = document.getElementById("thumbs");
+const elPathsBtn = document.getElementById("pathsBtn");
+const elPlayBtn  = document.getElementById("playBtn");
+const elClearBtn = document.getElementById("clearBtn");
+
+// How wide is the drawer RIGHT NOW, in screen pixels? The world handlers use this
+// to ignore clicks that landed on the drawer. We measure the real element each
+// time because its width changes with the screen size (see the @media rule in
+// editor.html). With the editor filling the window, screen px == canvas px, so
+// this number lines up with mousePos().
+function drawerW() {
+  return elDrawer ? elDrawer.getBoundingClientRect().width : 0;
+}
+
+// Build the pack-picker buttons (Classic / New Platformer / …). We only show this
+// row when there's more than one pack — with a single pack it'd be one pointless
+// button, so we hide it and give that space back to the sprite list.
+function buildPackRow() {
+  elPackRow.innerHTML = "";
+  if (PACKS.length <= 1) { elPackRow.style.display = "none"; return; }
+  elPackRow.style.display = "";
+  PACKS.forEach((pack, i) => {
+    const b = document.createElement("button");
+    b.textContent = pack.label;
+    b.dataset.pack = i;
+    b.addEventListener("click", () => {
+      if (paint) cancelPaint();      // tidy up any half-painted rectangle first
+      activePack = i;
+      activeCat = 0;                 // jump back to the new pack's first tab
+      buildTabs();
+      buildThumbs();
+      syncDrawer();
+    });
+    elPackRow.appendChild(b);
+  });
+}
+
+// Build the category tabs for the CURRENT pack (★ Faves, Terrain, Items, …).
+function buildTabs() {
+  elTabRow.innerHTML = "";
+  cats().forEach((cat, i) => {
+    const b = document.createElement("button");
+    b.textContent = cat.name;
+    b.dataset.tab = i;
+    b.addEventListener("click", () => {
+      if (paint) cancelPaint();
+      activeCat = i;
+      buildThumbs();
+      syncDrawer();
+    });
+    elTabRow.appendChild(b);
+  });
+}
+
+// Build the scrolling thumbnail grid for the active category. Each thumbnail is a
+// real <img> of the sprite (or, for invisible reset zones, a red outlined box).
+function buildThumbs() {
+  elThumbs.innerHTML = "";
+  elThumbs.scrollTop = 0;            // start a fresh list at the top
+  const items = cats()[activeCat].items;
+  for (const id of items) {
+    const b = document.createElement("button");
+    b.className = "thumb";
+    b.dataset.id = id;
+    if (RESET_IDS.has(id)) {
+      // Reset zones have no picture — show a red outlined box, like in the world.
+      const box = document.createElement("div");
+      box.className = "thumb-reset";
+      b.appendChild(box);
+    } else {
+      const img = document.createElement("img");
+      img.src = window.spritePath(id);
+      img.alt = id;
+      b.appendChild(img);
+    }
+    b.addEventListener("click", () => {
+      if (paint) cancelPaint();
+      // Tapping a thumbnail "arms" that block (then tap the world to drop it).
+      // Tapping the armed one again puts it down.
+      armed = (armed === id) ? null : id;
+      clearArmedGhost();
+      syncDrawer();
+    });
+    elThumbs.appendChild(b);
+  }
+  syncDrawer();                      // make sure the armed highlight lands right
+}
+
+// Wire up the buttons that never change (Home, name, Foe Paths, Play, Clear). We
+// only need to do this ONCE — they keep the same job for the whole session.
+function wireDrawerButtons() {
+  elNameBtn.addEventListener("click", () => { renameCurrent(); syncDrawer(); });
+  elHomeBtn.addEventListener("click", () => { saveLevel(); window.location.href = "home"; });
+  elPathsBtn.addEventListener("click", () => {
+    if (paint) cancelPaint();
+    pathMode = !pathMode;
+    pathFoe = null;
+    syncDrawer();
+  });
+  elPlayBtn.addEventListener("click", () => {
+    saveLevel();
+    window.location.href = "play?play=" + currentLevel.id;
+  });
+  elClearBtn.addEventListener("click", () => {
+    for (const o of placed) destroy(o);
+    placed = [];
+    saveLevel();
+  });
+}
+
+// Refresh the drawer's labels + highlights to match the game state. Call this
+// after changing the level name, the active pack/tab, the armed block, or path
+// mode — the drawer is HTML, so it won't update itself.
+function syncDrawer() {
+  elNameBtn.textContent = "🧱 " + (currentLevel ? currentLevel.name : "Level");
+  for (const b of elPackRow.children) b.classList.toggle("active", +b.dataset.pack === activePack);
+  for (const b of elTabRow.children)  b.classList.toggle("active", +b.dataset.tab === activeCat);
+  for (const b of elThumbs.children)  b.classList.toggle("armed", b.dataset.id === armed);
+  elPathsBtn.textContent = "🚶 Foe Paths: " + (pathMode ? "ON" : "OFF");
+  elPathsBtn.classList.toggle("on", pathMode);
+}
+
+// Fill + wire the whole drawer once, after we know which level we're editing.
+function buildDrawer() {
+  buildPackRow();
+  buildTabs();
+  buildThumbs();
+  wireDrawerButtons();
+  syncDrawer();
+}
+
+
+// ----------------------------------------------------------------------------
+//  PHONE STEER  —  the builder is best on a big screen (a gentle, skippable nudge)
+// ----------------------------------------------------------------------------
+//  Same test the home page uses: a touch screen ("coarse" pointer) AND a small
+//  screen (shorter side under 700px). We measure the SHORTER side so it works in
+//  portrait or landscape — an iPad's short side is ~768+, a phone's is ~430, so
+//  iPads sail through and only phones see the message. It's never a hard block:
+//  "Open anyway" hides it and you carry on. (This closes the gap where opening
+//  /editor straight on a phone used to land you in the cramped builder.)
+function isPhoneScreen() {
+  const coarse = window.matchMedia("(pointer: coarse)").matches;
+  const small  = Math.min(window.innerWidth, window.innerHeight) < 700;
+  return coarse && small;
+}
+function setupPhoneSteer() {
+  const steer = document.getElementById("phoneSteer");
+  if (isPhoneScreen()) steer.style.display = "flex";
+  document.getElementById("steerOpen").addEventListener("click", () => {
+    steer.style.display = "none";
+  });
+}
 
 
 // ----------------------------------------------------------------------------
@@ -983,17 +918,11 @@ function cancelPaint() {
 onMousePress("left", () => {
   const m = mousePos();
 
-  // --- The title-bar buttons work no matter what mode we're in. ---
-  if (inRect(m.x, m.y, homeRect())) { saveLevel(); window.location.href = "home"; return; }
-  if (inRect(m.x, m.y, nameRect()))  { renameCurrent(); return; }
-
-  // --- The "Foe Paths" toggle works no matter what mode we're in. ---
-  if (inRect(m.x, m.y, pathsRect())) {
-    if (paint) cancelPaint();
-    pathMode = !pathMode;
-    pathFoe = null;
-    return;
-  }
+  // Clicks that land on the HTML drawer are handled by the drawer's own buttons
+  // (see the "HTML DRAWER" section). Here we only care about the WORLD — so if
+  // the pointer is over the drawer, there's nothing to do in the world. (This
+  // also stops a tile being placed behind the drawer when you tap a button.)
+  if (m.x < drawerW()) return;
 
   // --- PATH MODE: clicks lay out where a foe walks (not normal editing). ---
   if (pathMode) {
@@ -1002,11 +931,6 @@ onMousePress("left", () => {
       for (const b of pathPanelRects().buttons) {
         if (inRect(m.x, m.y, b)) { handlePathButton(b.key); return; }
       }
-    }
-    // In the drawer area, only the Play button still does something.
-    if (m.x < DRAWER_W) {
-      if (inRect(m.x, m.y, playRect())) { saveLevel(); window.location.href = "play?play=" + currentLevel.id; return; }
-      return;
     }
     // Out in the world: click a foe to select it, or click a cell to add a waypoint.
     const wpt = toWorld(m);
@@ -1026,54 +950,14 @@ onMousePress("left", () => {
     return;
   }
 
-  // --- If we're painting, a click finishes it (or cancels, on the drawer). ---
-  if (paint) {
-    if (m.x < DRAWER_W) cancelPaint();
-    else commitPaint();
-    return;
-  }
-
-  // --- Did we click inside the drawer? ---
-  if (m.x < DRAWER_W) {
-    // A pack-picker button? Switch packs and jump back to its first tab.
-    for (const p of packRects()) {
-      if (inRect(m.x, m.y, p)) { activePack = p.i; activeCat = 0; scrollY = 0; return; }
-    }
-    // A tab?
-    for (const t of tabRects()) {
-      if (inRect(m.x, m.y, t)) { activeCat = t.i; scrollY = 0; return; }
-    }
-    // The play button? Save first, then open the game on this level. The game
-    // lives at "/play" now (the front door "/" is the home page).
-    if (inRect(m.x, m.y, playRect())) {
-      saveLevel();
-      window.location.href = "play?play=" + currentLevel.id;
-      return;
-    }
-    // The clear button?
-    if (inRect(m.x, m.y, clearRect())) {
-      for (const o of placed) destroy(o);
-      placed = [];
-      saveLevel();
-      return;
-    }
-    // A thumbnail? (only if it's within the visible list area). We DON'T act
-    // yet — we remember the press and wait. If the mouse then moves, it's a
-    // drag (the old drag-and-drop, started in onUpdate). If it's released on
-    // the spot, it's a click and we "arm" that block (see onMouseRelease).
-    if (m.y > listTop() && m.y < listBottom()) {
-      for (const c of cellRects()) {
-        if (inRect(m.x, m.y, c)) { pressThumb = { id: c.id, start: m.clone() }; return; }
-      }
-    }
-    return; // clicked drawer background — do nothing
-  }
+  // --- If we're painting, a click in the world finishes it. ---
+  if (paint) { commitPaint(); return; }
 
   // --- ARMED: a world click drops the armed block where you clicked. ---
   // (This sits BEFORE the move/pan code below, so while a block is armed a
   // click always places it — to move tiles or pan, disarm first with Escape
-  // or by clicking the lit-up block in the drawer again.)
-  if (armed && m.x >= DRAWER_W) {
+  // or by tapping the lit-up block in the drawer again.)
+  if (armed) {
     let mode = placementModeFor(armed);
     // "both" blocks (like coins) place one at a time; hold Shift to paint a row.
     if (mode === "both") mode = isKeyDown("shift") ? "paint" : "place";
@@ -1126,7 +1010,7 @@ onMousePress("right", () => {
   }
 
   const m = mousePos();
-  if (m.x < DRAWER_W) return;           // ignore right-clicks on the drawer
+  if (m.x < drawerW()) return;          // ignore right-clicks on the drawer
   const hit = pickPlaced(toWorld(m));
   if (hit) {
     destroy(hit);
@@ -1142,17 +1026,8 @@ onMousePress("right", () => {
 onMouseRelease("left", () => {
   panning = false;
 
-  // A thumbnail press that never moved into a drag = a click = arm that block
-  // (or disarm it if it was already the armed one).
-  if (pressThumb) {
-    armed = (armed === pressThumb.id) ? null : pressThumb.id;
-    pressThumb = null;
-    clearArmedGhost();
-    return;
-  }
-
   if (!drag) return;
-  const overDrawer = mousePos().x < DRAWER_W;
+  const overDrawer = mousePos().x < drawerW();
 
   if (overDrawer) {
     // Dropped back into the drawer = throw it away.
@@ -1181,15 +1056,8 @@ onMouseRelease("left", () => {
 });
 
 
-// ----------------------------------------------------------------------------
-//  MOUSE WHEEL  —  scroll the drawer list when the mouse is over the drawer
-// ----------------------------------------------------------------------------
-onScroll((delta) => {
-  if (mousePos().x >= DRAWER_W) return;        // only scroll over the drawer
-  const viewportH = listBottom() - listTop();
-  const maxScroll = Math.max(0, listContentHeight() - viewportH);
-  scrollY = clamp(scrollY + delta.y, 0, maxScroll);
-});
+// (The drawer's sprite list now scrolls natively — it's a real scrolling HTML
+//  box — so there's no mouse-wheel handler to write here any more.)
 
 
 // ----------------------------------------------------------------------------
@@ -1204,7 +1072,7 @@ onScroll((delta) => {
 function rotateBrush(dir) {
   if (pathMode) return;   // in path mode, keys don't rotate tiles
   // Hovering a placed tile (and not holding/painting one)? Turn just that tile.
-  if (!drag && !paint && mousePos().x >= DRAWER_W) {
+  if (!drag && !paint && mousePos().x >= drawerW()) {
     const hit = pickPlaced(toWorld(mousePos()));
     if (hit) {
       hit.spriteAngle = (hit.spriteAngle + dir * 90 + 360) % 360;
@@ -1240,7 +1108,7 @@ function flipBrush(axis) {
   const toggle = (o) => { if (axis === "x") o.flipX = !o.flipX; else o.flipY = !o.flipY; };
 
   // Hovering a placed tile (and not holding/painting one)? Flip just that tile.
-  if (!drag && !paint && mousePos().x >= DRAWER_W) {
+  if (!drag && !paint && mousePos().x >= drawerW()) {
     const hit = pickPlaced(toWorld(mousePos()));
     if (hit) {
       toggle(hit);
@@ -1272,8 +1140,8 @@ onKeyPress("escape", () => {
     drag = null;
   }
   armed = null;
-  pressThumb = null;
   clearArmedGhost();
+  syncDrawer();          // un-light the armed thumbnail in the drawer
 });
 
 
@@ -1285,7 +1153,7 @@ onKeyPress("escape", () => {
 //  accidentally push it above the reserved system layers (paths, etc.).
 function nudgeZ(dir) {
   if (pathMode || drag || paint) return;        // only when plainly hovering
-  if (mousePos().x < DRAWER_W) return;          // ignore the drawer
+  if (mousePos().x < drawerW()) return;         // ignore the drawer
   const hit = pickPlaced(toWorld(mousePos()));
   if (!hit) return;
   hit.baseZ = clamp(hit.baseZ + dir * 20, window.LAYERS.zMin, window.LAYERS.zMax);
@@ -1314,17 +1182,6 @@ onUpdate(() => {
 
   setCamPos(cam);
 
-  // Pressed a thumbnail and now dragging it out? Turn it into the old
-  // drag-and-drop. (Releasing without moving this far arms it instead.)
-  if (pressThumb && isMouseDown("left") &&
-      mousePos().dist(pressThumb.start) > CLICK_DIST) {
-    const id = pressThumb.id;
-    pressThumb = null;
-    armed = null;                        // dragging takes over from arming
-    clearArmedGhost();
-    startNewDrag(id);
-  }
-
   // If we're dragging a sprite, snap its ghost to the nicest spot under mouse.
   if (drag) {
     const [dw, dh] = effSize(drag.w, drag.h, drag.obj.spriteAngle); // turned tiles swap w/h
@@ -1336,7 +1193,7 @@ onUpdate(() => {
 
   // While a block is armed (and we're not dragging or painting), show a faded
   // preview of it snapped under the cursor, so you can see where it'll drop.
-  if (armed && !drag && !paint && mousePos().x >= DRAWER_W) {
+  if (armed && !drag && !paint && mousePos().x >= drawerW()) {
     if (!armedGhost || armedGhost.spriteId !== armed) {
       clearArmedGhost();
       armedGhost = makeTile(armed, 0, 0, brushAngle, brushFlipX, brushFlipY);
@@ -1382,4 +1239,6 @@ if (!window.Levels.offline && !window.Levels.me()) {
 } else {
   resolveCurrentLevel();
   loadLevel();
+  buildDrawer();        // fill + wire the HTML drawer now we know the level
+  setupPhoneSteer();    // and show the "best on a big screen" nudge if we're on a phone
 }

@@ -2,25 +2,216 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <!-- maximum-scale + user-scalable=no: stop the phone zooming the PAGE when you
+       tap buttons, so taps feel snappy. (Zooming the LEVEL is a separate, later
+       feature handled inside the canvas.) -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <!-- Please don't list this kids' game in search engines (see DEPLOY_DESIGN.md §9). -->
   <meta name="robots" content="noindex, nofollow" />
   <title>Level Designer — Coin Quest</title>
   <style>
-    /* Same dark room as the game, so the canvas pops in the middle. */
+    /* The editor fills the whole window now (just like the game does). The
+       Kaplay canvas sits underneath; our toolbox DRAWER is real HTML that floats
+       on top of the left edge. Real HTML buttons are a comfy size to tap and the
+       sprite list scrolls with your finger for free — much nicer on a tablet
+       than fake buttons painted onto the canvas. */
     html, body {
       margin: 0;
       height: 100%;
       background: #1e2a3a;
+      overflow: hidden;          /* no scrollbars around the full-screen editor */
+      font-family: sans-serif;
+    }
+    canvas {
+      image-rendering: pixelated; /* keep sprites crisp, not blurry */
+      display: block;             /* remove the tiny gap under the canvas */
+    }
+
+    /* ---- Easy knobs for how the drawer LOOKS (change these to re-style it) ---- */
+    :root {
+      --drawer-w: 250px;   /* how wide the drawer is on a computer */
+      --tap: 44px;         /* the smallest comfy size for a finger/tap target */
+      --gap: 8px;          /* space between things */
+      --ink: #ffffff;      /* text colour */
+      --panel: #1c2434;    /* drawer background (matches the old canvas colour) */
+      --panel-2: #2c384e;  /* the title bar at the top */
+      --btn: #36425a;      /* a normal button */
+      --btn-hot: #46556e;  /* a button you're hovering */
+    }
+
+    /* The whole toolbox down the left side. */
+    #drawer {
+      position: fixed;
+      left: 0; top: 0; bottom: 0;
+      width: var(--drawer-w);
+      box-sizing: border-box;
+      background: var(--panel);
+      color: var(--ink);
+      display: flex;
+      flex-direction: column;        /* title, packs, tabs, thumbs, buttons stacked */
+      z-index: 10;                   /* float ON TOP of the canvas */
+      user-select: none;
+      -webkit-user-select: none;
+      touch-action: manipulation;    /* snappier taps (no 300ms wait) */
+    }
+
+    /* Title bar: the level name (tap to rename) on the left, Home on the right. */
+    #titleBar {
+      display: flex;
+      gap: var(--gap);
+      padding: var(--gap);
+      background: var(--panel-2);
+    }
+    #nameBtn {
+      flex: 1;                       /* take all the width that Home doesn't need */
+      text-align: left;
+      font-size: 15px;
+      overflow: hidden;              /* a long name gets "…" instead of overflowing */
+      white-space: nowrap;
+      text-overflow: ellipsis;
+    }
+    #homeBtn { flex: 0 0 auto; }
+
+    /* Every button shares this look, and is at least one tap-target tall. */
+    #drawer button {
+      min-height: var(--tap);
+      border: 0;
+      border-radius: 6px;
+      background: var(--btn);
+      color: var(--ink);
+      font-size: 13px;
+      font-family: inherit;
+      cursor: pointer;
+      padding: 4px 8px;
+    }
+    #drawer button:hover { background: var(--btn-hot); }
+
+    /* Pack-picker row + category tabs: small buttons that wrap onto new rows. */
+    #packRow, #tabRow {
+      display: flex;
+      flex-wrap: wrap;
+      gap: var(--gap);
+      padding: var(--gap) var(--gap) 0;
+    }
+    #packRow button, #tabRow button { flex: 1 1 auto; min-height: 34px; }
+    #tabRow  button.active { background: #5aa0f0; }   /* the open category = blue */
+    #packRow button.active { background: #f0aa46; }   /* the picked pack = orange */
+
+    /* The scrolling grid of sprite thumbnails — THIS is the bit that scrolls. */
+    #thumbs {
+      flex: 1;                       /* eat all the leftover height */
+      overflow-y: auto;              /* ...and scroll when the list is too long */
+      -webkit-overflow-scrolling: touch;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: var(--gap);
+      padding: var(--gap);
+      align-content: start;
+    }
+    /* One thumbnail: a light tile with the sprite picture centred inside it. */
+    .thumb {
+      aspect-ratio: 1 / 1;
+      background: #d6dde8;           /* light, so dark block outlines stand out */
+      border: 3px solid transparent;
+      border-radius: 5px;
       display: flex;
       align-items: center;
       justify-content: center;
-      font-family: sans-serif;
+      padding: 4px;
     }
-    canvas { image-rendering: pixelated; } /* keep sprites crisp, not blurry */
+    .thumb img {
+      max-width: 100%;
+      max-height: 100%;
+      image-rendering: pixelated;
+      pointer-events: none;          /* a tap on the picture still counts as a tap on the button */
+    }
+    .thumb.armed { border-color: #5adc78; background: #ffffff; }  /* the "picked up" block */
+    /* Reset zones are invisible in the game, so we show them as a red outlined
+       box here (matching how they look once placed in the world). */
+    .thumb-reset {
+      width: 70%; height: 70%;
+      border: 3px solid #ff3c3c;
+      border-radius: 3px;
+    }
+
+    /* The three big action buttons pinned to the bottom of the drawer. */
+    #actions {
+      display: flex;
+      flex-direction: column;
+      gap: var(--gap);
+      padding: var(--gap);
+    }
+    #pathsBtn.on { background: #9659c8; }              /* Foe-Paths ON = purple */
+    #playBtn  { background: #379650; }                 /* Play = green */
+    #playBtn:hover { background: #46b95f; }
+    #clearBtn { background: #963737; }                 /* Clear all = red */
+    #clearBtn:hover { background: #c84646; }
+
+    /* On a touch screen, give everything a little more room for fingers. */
+    @media (pointer: coarse) {
+      :root { --drawer-w: 280px; --tap: 50px; }
+      #drawer button { font-size: 15px; }
+    }
+
+    /* ---- The "best on a big screen" soft-steer, shown only on a phone ---- */
+    #phoneSteer {
+      position: fixed;
+      inset: 0;
+      z-index: 50;
+      background: rgba(20, 28, 42, 0.95);
+      color: #fff;
+      display: none;                 /* editor.js turns this on only on a phone */
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 24px;
+      box-sizing: border-box;
+    }
+    #phoneSteer h1 { font-size: 22px; margin: 0 0 12px; }
+    #phoneSteer p  { font-size: 16px; max-width: 28em; line-height: 1.5; opacity: 0.9; }
+    #phoneSteer button {
+      margin-top: 22px;
+      min-height: 50px;
+      padding: 0 22px;
+      font-size: 17px;
+      border: 0;
+      border-radius: 8px;
+      background: #5aa0f0;
+      color: #fff;
+      font-family: inherit;
+      cursor: pointer;
+    }
   </style>
 </head>
 <body>
+  <!-- The toolbox DRAWER. Kaplay's canvas is created next and sits behind this;
+       the drawer floats on top of the left edge. editor.js fills the pack row,
+       category tabs and thumbnails from the shared palette, and wires the buttons. -->
+  <div id="drawer">
+    <div id="titleBar">
+      <button id="nameBtn" title="Rename this level">🧱 Level</button>
+      <button id="homeBtn" title="Back to the home page">🏠 Home</button>
+    </div>
+    <div id="packRow"></div>   <!-- pack-picker buttons go here (filled by editor.js) -->
+    <div id="tabRow"></div>    <!-- category tabs go here -->
+    <div id="thumbs"></div>    <!-- the scrolling sprite list goes here -->
+    <div id="actions">
+      <button id="pathsBtn">🚶 Foe Paths: OFF</button>
+      <button id="playBtn">▶ Play my level</button>
+      <button id="clearBtn">🗑 Clear all</button>
+    </div>
+  </div>
+
+  <!-- Shown ONLY on a small phone screen: a friendly "use a bigger screen" nudge
+       you can wave away with "Open anyway". It never hard-blocks you. -->
+  <div id="phoneSteer">
+    <h1>The builder works best on an iPad or computer</h1>
+    <p>It's a drag-and-drop tool that needs a bit of room and a steady tap — it's
+       fiddly on a small phone. Playing levels works great here, though!</p>
+    <button id="steerOpen">Open anyway</button>
+  </div>
+
   <!-- Load the Kaplay game library (same pinned version as the game). -->
   <script src="https://unpkg.com/kaplay@3001.0.19/dist/kaplay.js"></script>
 
