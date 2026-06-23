@@ -81,9 +81,7 @@ kaplay({
   // No fixed width/height (and no letterbox): the editor fills the whole browser
   // window, so 1 screen pixel == 1 canvas pixel. That's what lets the HTML drawer
   // (real buttons floating on top) line up exactly with the world behind it.
-  background: [205, 220, 233],  // a PALE blue-grey "drawing board" — kept light on
-                                //  purpose so blocks with dark/black outlines stand
-                                //  out clearly (a dark board hid those outlines).
+  background: [120, 170, 210],  // a calm blue "drawing board"
 });
 
 // We are NOT a platformer here, so we don't want gravity pulling tiles down.
@@ -352,23 +350,22 @@ add([z(-100)]).onDraw(() => {
   const startX = Math.floor(topLeft.x / step) * step;
   const startY = Math.floor(topLeft.y / step) * step;
 
-  // Faint DARK lines (the board is pale now, so white lines would vanish).
   for (let x = startX; x < bottomRight.x; x += step) {
     drawLine({
       p1: vec2(x, topLeft.y), p2: vec2(x, bottomRight.y),
-      width: 1, color: rgb(40, 60, 90), opacity: 0.14,
+      width: 1, color: rgb(255, 255, 255), opacity: 0.10,
     });
   }
   for (let y = startY; y < bottomRight.y; y += step) {
     drawLine({
       p1: vec2(topLeft.x, y), p2: vec2(bottomRight.x, y),
-      width: 1, color: rgb(40, 60, 90), opacity: 0.14,
+      width: 1, color: rgb(255, 255, 255), opacity: 0.10,
     });
   }
 
-  // A bolder cross marks world origin (0,0) so you never get lost.
-  drawLine({ p1: vec2(-12, 0), p2: vec2(12, 0), width: 2, color: rgb(40, 90, 180), opacity: 0.8 });
-  drawLine({ p1: vec2(0, -12), p2: vec2(0, 12), width: 2, color: rgb(40, 90, 180), opacity: 0.8 });
+  // A brighter cross marks world origin (0,0) so you never get lost.
+  drawLine({ p1: vec2(-12, 0), p2: vec2(12, 0), width: 2, color: rgb(255, 240, 120), opacity: 0.6 });
+  drawLine({ p1: vec2(0, -12), p2: vec2(0, 12), width: 2, color: rgb(255, 240, 120), opacity: 0.6 });
 });
 
 
@@ -568,7 +565,7 @@ ui.onDraw(() => {
     : paint
     ? "PAINTING: move the mouse to size the rectangle  •  Q / E rotate  •  X / Y flip  •  left-click to fill it  •  right-click to cancel"
     : "Tap a block then tap the world to place  •  Q / E rotate  •  X / Y flip  •  [ / ] send back / bring forward  •  drag placed tiles to move  •  right-click to delete  •  arrows scroll";
-  drawText({ text: help, pos: vec2(drawerW() + 14, height() - 22), size: 13, color: rgb(30, 45, 65), opacity: 0.8 });
+  drawText({ text: help, pos: vec2(drawerW() + 14, height() - 22), size: 13, color: rgb(255, 255, 255), opacity: 0.75 });
 
   // The FOE-PATH OPTIONS PANEL (right edge) — only when a foe is selected.
   if (pathMode && pathFoe && pathFoe.path) {
