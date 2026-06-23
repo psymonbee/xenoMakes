@@ -111,11 +111,16 @@
       align-content: start;
     }
     /* One thumbnail: a near-white tile with the sprite picture centred inside.
-       We DON'T use aspect-ratio for the height here: combined with the shared
+       NOTE: these rules are scoped under #thumbs ON PURPOSE. The generic
+       "#drawer button" rule above has an ID in it, so it would otherwise WIN on
+       specificity and paint every thumbnail the dark button colour. Putting
+       #thumbs in front gives these rules the higher specificity they need.
+
+       We also DON'T use aspect-ratio for the height: combined with the shared
        button min-height it made the grid rows collapse to 44px, so tall
        thumbnails spilled over and "crashed into" the row below. Pinning the row
        height with grid-auto-rows (above) and filling it is rock-solid instead. */
-    .thumb {
+    #thumbs .thumb {
       min-height: 0;                 /* cancel the shared button min-height */
       height: 100%;                  /* fill the fixed-height grid row */
       background: #eef2f7;           /* near-white, so dark block outlines pop */
@@ -126,16 +131,17 @@
       justify-content: center;
       padding: 4px;
     }
-    .thumb img {
+    #thumbs .thumb:hover { background: #ffffff; }   /* brighten on hover */
+    #thumbs .thumb img {
       max-width: 100%;
       max-height: 100%;
       image-rendering: pixelated;
       pointer-events: none;          /* a tap on the picture still counts as a tap on the button */
     }
-    .thumb.armed { border-color: #5adc78; background: #ffffff; }  /* the "picked up" block */
+    #thumbs .thumb.armed { border-color: #5adc78; background: #ffffff; }  /* the "picked up" block */
     /* Reset zones are invisible in the game, so we show them as a red outlined
        box here (matching how they look once placed in the world). */
-    .thumb-reset {
+    #thumbs .thumb-reset {
       width: 70%; height: 70%;
       border: 3px solid #ff3c3c;
       border-radius: 3px;
