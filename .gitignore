@@ -11,3 +11,9 @@ node_modules/
 
 # The shared levels + accounts database (lives on the server, never in git).
 data/
+
+# The "drop zone" for new art packs you're importing. You put a freshly
+# downloaded Kenney pack in here and run /addpacks; the skill copies the art
+# into assets/packs/ properly and then EMPTIES this folder, so nothing raw is
+# ever committed and you never end up with a duplicate copy sitting around.
+incoming-packs/

@@ -214,3 +214,26 @@ It's a near-complete superset of the Classic pack **plus sound effects**.
 | `enemies/` | Slimes (normal/fire/spike/block), snail, fly, bee, ladybug, mouse, frog, worms, fish, barnacle, saw — most with `_a`/`_b`/`_rest` animation frames. |
 | `backgrounds/` | 14 layered 256×256 backdrops (solid, colour, and fade variants). |
 | `sounds/` | 10 sound effects: `sfx_jump`, `sfx_jump-high`, `sfx_coin`, `sfx_gem`, `sfx_hurt`, `sfx_bump`, `sfx_disappear`, `sfx_magic`, `sfx_select`, `sfx_throw`. The game wires up jump/coin/hurt; the rest are ready to use. |
+
+## 🍭 Candy pack — `assets/packs/candy/`
+A sweet themed Kenney pack (**Kenney "Platformer Art: Candy", CC0**) — 95 tiles,
+all dessert: cakes, chocolate, waffles, cookies, lollipops, candy canes and gummy
+worms. It's a **tiles-and-decoration pack only** — no characters, enemies, flags
+or hazards (mix it with another pack if you want danger). Shows up in the editor
+as the **Candy** button.
+
+- **Sizes:** tiles are **70×70** (same grid as the Classic pack).
+- **Naming:** Kenney's original `camelCase`, e.g. `cakeMid`, `chocoLeft`,
+  `candyRed`, `lollipopGreen`, `gummyWormGreenHead`. In code these get the pack
+  prefix → `candy:cakeMid`.
+- The categorised list lives in the manifest **`assets/packs/candy/pack.js`**
+  (hand-tuned, because the candy names don't match the generator's English
+  category words). Regenerate the first draft with
+  `node scripts/gen-pack.mjs --id candy --label "Candy" --prefix candy`.
+
+| Category | What's in it |
+|----------|--------------|
+| Ground (48) | `cake*` and `choco*` terrain — mids, lefts/rights, centers, cliffs, halves, hills, ledges. **Solid** (you stand on them). |
+| Blocks (6) | `waffleChoco/Pink/White` and `cookieBrown/Choco/Pink` — solid platform blocks. |
+| Items (13) | `candyBlue/Green/Red/Yellow`, `cherry`, `heart`, and the `lollipop*` sweets — all **collectible** (count like coins). |
+| Props (28) | Decoration only (not solid): candy `cane*`, `hillCane*` striped hills, `cream*` blobs, `cupCake`, `lollipopBase*` stands, and `gummyWorm*` segments. |

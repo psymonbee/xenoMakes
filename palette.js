@@ -39,10 +39,11 @@
 const BASE_PACK = {
   id: "base",
   label: "Classic",
-  // hidden:true keeps this pack OUT of the editor's pack-picker (we build with
-  // the "Standard" pack now). Its sprites still load, so any OLD level that used
-  // classic tiles keeps rendering — we just don't offer it as a build choice.
-  hidden: true,
+  // hidden:false means this pack IS offered in the editor's pack-picker, so you
+  // can build with the Classic art as well as the Standard pack. (Set this back
+  // to true to hide it again — its sprites still load either way, so old levels
+  // that used classic tiles keep rendering regardless.)
+  hidden: false,
   prefix: "",                              // no prefix → plain names like "grassMid"
   root: "assets",                          // files live at assets/<folder>/<name>.png
   sizes: { tileW: 70, tileH: 70, charW: 66, charH: 92 },
@@ -84,7 +85,15 @@ const BASE_PACK = {
     },
   ],
 
-  favourites: [],   // the classic pack is small enough to not need a shortlist
+  // A short "best bits" shortlist, shown as a "★ Faves" tab so the Classic pack
+  // is laid out just like the Standard pack (faves first, then the categories).
+  favourites: [
+    "grassMid", "grassLeft", "grassRight", "dirtMid", "stoneMid",
+    "box", "boxCoin", "brickWall", "ladder_mid", "door_closedTop",
+    "coinGold", "gemBlue", "star", "flagGreen", "springboardUp",
+    "bush", "mushroomRed", "sign",
+    "slimeWalk1", "p1_front",
+  ],
 
   // What each sprite DOES. (Edge-piece families share a name prefix, so for
   // "solid" we can match by prefix instead of listing every piece.)
