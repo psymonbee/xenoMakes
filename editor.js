@@ -46,16 +46,13 @@ const EDITOR_ALL_PACKS = window.PACKS;
 const PACKS = window.PACKS.filter((p) => !p.hidden);
 let activePack = 0;     // which art pack is selected (index into PACKS)
 
-// The categories shown for the current pack. If the pack has a "favourites"
-// shortlist, we slip a "★ Faves" tab in front so the best bits are one click
-// away instead of buried in a 300-sprite list.
+// The categories shown for the current pack. We ALWAYS slip a "★ Faves" tab in
+// front: it's your own, cross-pack palette of starred sprites (see window.Faves
+// in palette.js), so your most-used blocks are one tap away no matter which pack
+// they came from. You fill it by tapping the ☆ star on any thumbnail.
 function cats() {
   const p = PACKS[activePack];
-  const base = p.categories;
-  if (p.favourites && p.favourites.length) {
-    return [{ name: "★ Faves", folder: "", items: p.favourites }, ...base];
-  }
-  return base;
+  return [{ name: "★ Faves", folder: "", items: window.Faves.list(), isFaves: true }, ...p.categories];
 }
 
 // The grid step (and snap fallback) follows the current pack's tile size, so
@@ -100,12 +97,24 @@ document.addEventListener("contextmenu", (e) => e.preventDefault());
 // ----------------------------------------------------------------------------
 //  ASSET[name] = { w, h, folder }  — comes from the shared palette.js.
 const ASSET = window.ASSET_INFO;
+const _loaded = new Set();               // remember what we've loaded (no doubles)
 for (const pack of EDITOR_ALL_PACKS) {   // load EVERY pack's art, even hidden ones
   for (const cat of pack.categories) {
     for (const id of cat.items) {
       if (RESET_IDS.has(id)) continue;   // reset zones have no picture to load
       loadSprite(id, window.spritePath(id));
+      _loaded.add(id);
     }
+  }
+}
+// Also load every ANIMATION frame (a slime's waddle, a flag's wave, a coin's
+// spin…) so the editor can show placed tiles ALIVE — and you can SEE the effect
+// of switching an animation off. window.ANIM lists them (set up in palette.js).
+for (const placedId of Object.keys(window.ANIM)) {
+  for (const f of window.ANIM[placedId].frames) {
+    if (_loaded.has(f) || !ASSET[f]) continue;
+    loadSprite(f, window.spritePath(f));
+    _loaded.add(f);
   }
 }
 
@@ -149,6 +158,11 @@ let brushFlipY = false;
 let armed      = null;   // full sprite id currently armed from the drawer, or null
 let armedGhost = null;   // faded preview of the armed block under the cursor
 
+// RIGHT-CLICK MENU: a little HTML pop-up (see editor.html) that opens on a tile
+// which can ANIMATE, so you can switch its wiggle off/on (or delete it). ctxTarget
+// is the placed tile the menu is acting on, or null when the menu is closed.
+let ctxTarget = null;
+
 // WHAT DOES CLICKING DO FOR EACH KIND OF BLOCK? (keyed by the block's layer,
 // which palette.js already works out for every sprite). This is the one place
 // to tweak it; new block types fall back to "place" automatically.
@@ -179,10 +193,11 @@ function effSize(w, h, angle) {
   return (angle % 180 === 0) ? [w, h] : [h, w];
 }
 
-// Start the view so world (0,0) sits just to the RIGHT of the drawer, and a
-// little down from the top — a comfy place to start building.
-cam.x = width() / 2 - DRAWER_W - 40;
-cam.y = height() / 2 - 80;
+// Start the view centred on the SCREEN BOX (window.FRAME, the 1280x720 area the
+// player will actually see). Building inside this box means what you make is what
+// they get — and the bottom edge of the box is the bottom of the screen.
+cam.x = window.FRAME.w / 2;
+cam.y = window.FRAME.h / 2;
 
 // Panning the world by dragging empty space:
 let panning = false;
@@ -210,6 +225,9 @@ function levelTiles() {
     };
     // Only save the draw order if it's been nudged off this layer's normal value.
     if (o.baseZ !== window.LAYERS.z[o.layer]) t.z = o.baseZ;
+    // Only save the animation flag when it's been switched OFF (on is the default,
+    // so most tiles save nothing extra and old levels keep animating for free).
+    if (o.animOff) t.anim = false;
     // If this is a foe with a walking route, save the route too (waypoints,
     // loop style, speed, and how close the player must be to wake it up).
     if (o.path && o.path.points.length) {
@@ -239,6 +257,8 @@ function loadLevel() {
       const o = makeTile(t.id, t.x, t.y, t.angle || 0, t.flipX || false, t.flipY || false);
       // Bring back a nudged draw order, if this sprite had one.
       if (typeof t.z === "number") { o.baseZ = t.z; o.z = t.z; }
+      // Bring back a "switched off" animation, if this tile had one.
+      o.animOff = (t.anim === false);
       // Bring back a saved walking route, if this foe had one.
       if (t.path && t.path.points && t.path.points.length) {
         o.path = {
@@ -306,6 +326,7 @@ function makeTile(id, x, y, angle = 0, flipX = false, flipY = false) {
   o.height = a.h;
   o.drawOpacity = 1;
   o.path = null;   // a foe's walking route (or null). See "FOE PATHS" near the bottom.
+  o.animOff = false;  // is this tile's ambient animation switched OFF? (right-click menu)
 
   // LAYER: which "deck" this sprite draws on (background…player). It's chosen
   // automatically from what the sprite is, so levels look tidy with no fiddling.
@@ -327,13 +348,32 @@ function makeTile(id, x, y, angle = 0, flipX = false, flipY = false) {
       });
     } else {
       drawSprite({
-        sprite: o.spriteId, pos: c, anchor: "center", angle: o.spriteAngle,
+        sprite: tileFrame(o), pos: c, anchor: "center", angle: o.spriteAngle,
         flipX: o.flipX, flipY: o.flipY, opacity: o.drawOpacity,
+      });
+    }
+    // A green outline around the tile the right-click menu is currently acting on.
+    if (o === ctxTarget) {
+      drawRect({
+        pos: c, anchor: "center", angle: o.spriteAngle,
+        width: o.width + 6, height: o.height + 6, fill: false,
+        outline: { width: 3, color: rgb(90, 220, 120) },
       });
     }
   });
 
   return o;
+}
+
+// Which picture should a placed tile show RIGHT NOW? Usually just its own sprite,
+// but an ANIMATED tile (whose animation you haven't switched off) flicks through
+// its frames so the editor previews the movement. Heroes are left on their still
+// "front" pose — their walk only makes sense once they're moving in the game.
+function tileFrame(o) {
+  const def = window.ANIM[o.spriteId];
+  if (!def || def.player || o.animOff) return o.spriteId;
+  const i = Math.floor(time() * def.fps) % def.frames.length;
+  return def.frames[i];
 }
 
 
@@ -362,6 +402,22 @@ add([z(-100)]).onDraw(() => {
       width: 1, color: rgb(255, 255, 255), opacity: 0.10,
     });
   }
+
+  // THE SCREEN BOX — a 1280x720 outline showing EXACTLY what the player sees when
+  // the level loads. Build inside it. Its BOTTOM edge is the bottom of the screen,
+  // so rest your floor along that green line and it'll sit on the ground in-game.
+  const FW = window.FRAME.w, FH = window.FRAME.h;
+  drawRect({
+    pos: vec2(0, 0), width: FW, height: FH,
+    fill: false, outline: { width: 3, color: rgb(255, 235, 130) }, opacity: 0.8,
+  });
+  // A bolder GREEN line on the bottom edge = "the ground line / bottom of screen".
+  drawLine({ p1: vec2(0, FH), p2: vec2(FW, FH), width: 6, color: rgb(120, 220, 140), opacity: 0.9 });
+  // A little label so it's obvious what the box is.
+  drawText({
+    text: "screen — what the player sees (floor goes on the green line)",
+    pos: vec2(8, 8), size: 20, color: rgb(255, 235, 130), opacity: 0.8,
+  });
 
   // A brighter cross marks world origin (0,0) so you never get lost.
   drawLine({ p1: vec2(-12, 0), p2: vec2(12, 0), width: 2, color: rgb(255, 240, 120), opacity: 0.6 });
@@ -564,7 +620,7 @@ ui.onDraw(() => {
         : "PATH MODE: click a foe to start drawing where it walks  •  turn Foe Paths OFF to build normally again")
     : paint
     ? "PAINTING: move the mouse to size the rectangle  •  Q / E rotate  •  X / Y flip  •  left-click to fill it  •  right-click to cancel"
-    : "Tap a block then tap the world to place  •  Q / E rotate  •  X / Y flip  •  [ / ] send back / bring forward  •  drag placed tiles to move  •  right-click to delete  •  arrows scroll";
+    : "Tap a block then tap the world to place  •  Q / E rotate  •  X / Y flip  •  [ / ] send back / bring forward  •  drag placed tiles to move  •  right-click to delete (animated tiles open a menu)  •  arrows scroll";
   drawText({ text: help, pos: vec2(drawerW() + 14, height() - 22), size: 13, color: rgb(255, 255, 255), opacity: 0.75 });
 
   // The FOE-PATH OPTIONS PANEL (right edge) — only when a foe is selected.
@@ -687,7 +743,20 @@ function buildTabs() {
 function buildThumbs() {
   elThumbs.innerHTML = "";
   elThumbs.scrollTop = 0;            // start a fresh list at the top
-  const items = cats()[activeCat].items;
+  const cat = cats()[activeCat];
+  const items = cat.items;
+
+  // Friendly nudge when your Faves palette is still empty, so it's never a
+  // blank, confusing screen — it tells you exactly how to fill it.
+  if (cat.isFaves && items.length === 0) {
+    const hint = document.createElement("div");
+    hint.className = "fave-empty";
+    hint.textContent = "No faves yet! Tap the ☆ star on any block to add it to your palette.";
+    elThumbs.appendChild(hint);
+    syncDrawer();
+    return;
+  }
+
   for (const id of items) {
     const b = document.createElement("button");
     b.className = "thumb";
@@ -703,6 +772,27 @@ function buildThumbs() {
       img.alt = id;
       b.appendChild(img);
     }
+
+    // A little star badge in the top corner of every thumbnail. It's an OUTLINE
+    // (☆) until you tap it, then it FILLS (★) to show this block is in your
+    // Faves. Tapping the star toggles the fave — and on purpose it does NOT
+    // "arm" the block (stopPropagation keeps the tap from reaching the button
+    // below), so you can curate your palette without placing anything.
+    const star = document.createElement("span");
+    star.className = "fave-star";
+    const paintStar = (on) => { star.textContent = on ? "★" : "☆"; star.classList.toggle("on", on); };
+    paintStar(window.Faves.has(id));
+    star.title = "Add to / remove from your Faves";
+    star.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const nowFave = window.Faves.toggle(id);
+      paintStar(nowFave);
+      // If we're looking at the Faves tab itself, an un-starred block must
+      // vanish — rebuilding the list is the simplest, always-correct way.
+      if (cats()[activeCat].isFaves) buildThumbs();
+    });
+    b.appendChild(star);
+
     b.addEventListener("click", () => {
       if (paint) cancelPaint();
       // Tapping a thumbnail "arms" that block (then tap the world to drop it).
@@ -757,6 +847,73 @@ function buildDrawer() {
   buildThumbs();
   wireDrawerButtons();
   syncDrawer();
+}
+
+
+// ----------------------------------------------------------------------------
+//  THE RIGHT-CLICK MENU  —  a little HTML pop-up for an animated tile
+// ----------------------------------------------------------------------------
+//  Right-clicking a tile that can ANIMATE (a slime, flag, coin, torch…) opens
+//  this menu so you can switch its wiggle OFF (or back on), or delete it. Plain
+//  tiles still delete instantly on right-click — the menu only appears where
+//  there's actually a choice to make. It's real HTML (see editor.html), floating
+//  on top of the canvas, so it lines up exactly with the cursor.
+const elCtxMenu = document.getElementById("ctxMenu");
+
+// Clicks INSIDE the menu must never fall through to the canvas/world behind it
+// (so tapping a menu button can't also place or move a tile). We stop the event
+// here once; the menu's own buttons still get their click.
+for (const ev of ["mousedown", "pointerdown", "click"]) {
+  elCtxMenu.addEventListener(ev, (e) => e.stopPropagation());
+}
+
+// Can this placed tile animate? Heroes animate from MOVEMENT in the game (not as
+// scenery), so they don't get the on/off menu — only ambient animations do.
+function isAnimatable(o) {
+  const def = window.ANIM[o.spriteId];
+  return !!(def && !def.player);
+}
+
+// Build + show the menu at (sx, sy) SCREEN pixels, acting on placed tile o.
+function openCtxMenu(o, sx, sy) {
+  ctxTarget = o;
+  elCtxMenu.innerHTML = "";
+
+  // Row 1 — switch this tile's animation off (or back on).
+  const animBtn = document.createElement("button");
+  animBtn.className = "ctx-item";
+  animBtn.textContent = o.animOff ? "▶  Turn animation on" : "⏸  Turn animation off";
+  animBtn.addEventListener("click", () => {
+    o.animOff = !o.animOff;
+    saveLevel();
+    closeCtxMenu();
+  });
+  elCtxMenu.appendChild(animBtn);
+
+  // Row 2 — delete the tile (so right-click can still remove animated ones too).
+  const delBtn = document.createElement("button");
+  delBtn.className = "ctx-item danger";
+  delBtn.textContent = "🗑  Delete";
+  delBtn.addEventListener("click", () => {
+    destroy(o);
+    removeFromPlaced(o);
+    saveLevel();
+    closeCtxMenu();
+  });
+  elCtxMenu.appendChild(delBtn);
+
+  // Pop it up at the cursor, then nudge it back on-screen if it would spill off
+  // the right/bottom edge.
+  elCtxMenu.style.display = "block";
+  const mw = elCtxMenu.offsetWidth, mh = elCtxMenu.offsetHeight;
+  elCtxMenu.style.left = Math.min(sx, window.innerWidth  - mw - 6) + "px";
+  elCtxMenu.style.top  = Math.min(sy, window.innerHeight - mh - 6) + "px";
+}
+
+// Hide the menu (and forget which tile it was for, so the green outline clears).
+function closeCtxMenu() {
+  ctxTarget = null;
+  if (elCtxMenu) elCtxMenu.style.display = "none";
 }
 
 
@@ -916,6 +1073,11 @@ function cancelPaint() {
 //  MOUSE: PRESS  —  decide what the click means
 // ----------------------------------------------------------------------------
 onMousePress("left", () => {
+  // A left-click anywhere on the world first DISMISSES an open right-click menu
+  // (clicks that land on the menu's own buttons are handled by the HTML buttons
+  // and never reach here). We swallow this click so it doesn't also place/move.
+  if (ctxTarget) { closeCtxMenu(); return; }
+
   const m = mousePos();
 
   // Clicks that land on the HTML drawer are handled by the drawer's own buttons
@@ -1012,7 +1174,13 @@ onMousePress("right", () => {
   const m = mousePos();
   if (m.x < drawerW()) return;          // ignore right-clicks on the drawer
   const hit = pickPlaced(toWorld(m));
-  if (hit) {
+  if (!hit) { closeCtxMenu(); return; } // empty space — just shut any open menu
+
+  if (isAnimatable(hit)) {
+    // A tile that can wiggle: open its little menu (off/on + delete).
+    openCtxMenu(hit, m.x, m.y);
+  } else {
+    // A plain tile: keep the quick right-click-to-delete behaviour.
     destroy(hit);
     removeFromPlaced(hit);
     saveLevel();
@@ -1133,6 +1301,7 @@ onKeyPress("y", () => flipBrush("y"));
 // ESCAPE — back out of whatever you're doing: cancel a paint, drop a drag, and
 // un-arm the drawer block. A handy "never mind" key.
 onKeyPress("escape", () => {
+  closeCtxMenu();          // shut the right-click menu if it's open
   if (paint) cancelPaint();
   if (drag) {
     destroy(drag.obj);

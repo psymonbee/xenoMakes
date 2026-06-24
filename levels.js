@@ -27,6 +27,14 @@
 // ============================================================================
 
 
+// ---- THE SCREEN SIZE everyone agrees on ------------------------------------
+// The game runs at a FIXED "design size": 1280 x 720 pixels (a 16:9 screen).
+// Kaplay scales that up to fill your monitor and adds bars on the edges
+// (letterbox), so the game looks the SAME on every screen — phone, laptop or a
+// giant monitor. The editor draws a box this exact size so you can see where the
+// edges of the screen will be, and put your floor along the bottom of it.
+window.FRAME = { w: 1280, h: 720 };
+
 // ---- our in-memory copies, filled in by load() -----------------------------
 let _levels = {};        // id -> level   (everything we're allowed to see)
 let _user   = null;      // { id, username, isAdmin } or null when logged out

@@ -26,9 +26,14 @@ const TILE_SIZE    = 70;    // size of one tile in pixels (the art is 70x70)
 //  START KAPLAY  —  this makes the game window and the canvas
 // ----------------------------------------------------------------------------
 kaplay({
-  // No fixed width/height (and no letterbox) means Kaplay fills the whole
-  // browser window and follows it when you resize — so the game is as big as
-  // your screen instead of a small boxed-in window.
+  // FIXED "design size": the game always thinks the screen is 1280x720 (a 16:9
+  // shape). letterbox:true tells Kaplay to scale that up to fill your monitor
+  // and add bars on the edges if the shapes don't match — so the game looks the
+  // SAME everywhere and a floor placed at the bottom REALLY sits at the bottom.
+  // (window.FRAME is shared with the editor — see levels.js.)
+  width: window.FRAME.w,
+  height: window.FRAME.h,
+  letterbox: true,
   background: [135, 206, 235], // sky blue  (Red, Green, Blue from 0-255)
 });
 
@@ -122,6 +127,19 @@ if (DESIGN) {
     if (!window.ROLES.coinblock.has(id)) continue;
     const coinId = window.coinFor(window.ASSET_INFO[id].pack);
     if (coinId && window.ASSET_INFO[coinId]) loadSprite(coinId, window.spritePath(coinId));
+  }
+  // ANIMATED sprites (a slime's waddle, a flag's wave, a coin's spin, a torch's
+  // flicker, a hero's walk cycle) flick through EXTRA pictures. window.ANIM[id]
+  // lists them (set up in palette.js); load any we don't already have so the
+  // game can show the movement. (Skip frames that are themselves placed tiles —
+  // those are already loaded just above.)
+  for (const id of ids) {
+    const def = window.ANIM[id];
+    if (!def) continue;
+    for (const f of def.frames) {
+      if (ids.has(f)) continue;                    // already loaded as a placed sprite
+      if (window.ASSET_INFO[f]) loadSprite(f, window.spritePath(f));
+    }
   }
 }
 
@@ -289,6 +307,26 @@ function addPathMover(obj, route, mode, speed, range, cellSize) {
   });
 }
 
+// Make a placed sprite come ALIVE by flicking through its animation frames.
+//  frames = a list of sprite ids to show in order; fps = how many per second.
+//  We keep a tiny timer on the object and swap its picture when enough time has
+//  passed. We carefully put the flip (facing) back after each swap, so a foe that
+//  also WALKS a path keeps facing the way it's heading.
+function addAnimator(o, frames, fps) {
+  if (!frames || frames.length < 2) return;
+  let i = 0, acc = 0;
+  const step = 1 / fps;
+  o.onUpdate(() => {
+    acc += dt();
+    if (acc < step) return;
+    acc = 0;
+    i = (i + 1) % frames.length;
+    const fx = o.flipX, fy = o.flipY;            // remember which way it's facing
+    o.use(sprite(frames[i]));                    // swap to the next picture
+    o.flipX = fx; o.flipY = fy;                  // …and keep it facing the same way
+  });
+}
+
 // Add ONE designed sprite to the world with the right behaviour for what it is.
 //
 //  Every designed tile is anchored at its CENTRE and given a rotate(angle)
@@ -296,7 +334,7 @@ function addPathMover(obj, route, mode, speed, range, cellSize) {
 //  swinging off its corner), and Kaplay rotates the hitbox along with the
 //  picture — so rotated slopes and blocks collide correctly. The editor saves a
 //  tile's TOP-LEFT corner, so we add half its size to get the centre.
-function addDesignTile(id, x, y, angle = 0, flipX = false, flipY = false, path = null, zVal = null) {
+function addDesignTile(id, x, y, angle = 0, flipX = false, flipY = false, path = null, zVal = null, animOff = false) {
   const a = window.ASSET_INFO[id] || { w: TILE_SIZE, h: TILE_SIZE };
   const w = a.w, h = a.h;
   const cx = x + w / 2, cy = y + h / 2;          // top-left -> centre
@@ -372,6 +410,13 @@ function addDesignTile(id, x, y, angle = 0, flipX = false, flipY = false, path =
   if (path && path.route && path.route.length >= 2) {
     addPathMover(o, path.route, path.mode, path.speed, path.range, path.cell);
   }
+
+  // If this sprite has an AMBIENT animation (a waddle, wave, spin, flicker) and
+  // you didn't switch it off in the editor, bring it to life. Heroes are skipped
+  // here — their walk cycle is driven by movement down in the player section.
+  const adef = window.ANIM[id];
+  if (adef && !adef.player && !animOff) addAnimator(o, adef.frames, adef.fps);
+
   return o;
 }
 
@@ -387,9 +432,14 @@ function buildDesignLevel(design) {
     maxY = Math.max(maxY, t.y + info.h);
   }
 
-  // Shift everything so the level starts near (0,0), with a one-tile margin.
+  // Shift everything to line up with the FIXED screen (window.FRAME, 1280x720).
+  //  • Sideways: the LEFTMOST tile starts one tile in from the left edge.
+  //  • Up/down: the LOWEST tile sits on the BOTTOM of the screen. That's the
+  //    important bit — whatever you put at the bottom of your build lands on the
+  //    bottom of the screen when you press play (no more floating in the middle).
+  const FRAME_H = window.FRAME.h;
   const offX = minX - TILE_SIZE;
-  const offY = minY - TILE_SIZE;
+  const offY = maxY - FRAME_H;
   for (const t of design) {
     // t.angle is how far the editor rotated this tile; t.flipX/t.flipY mirror it.
     // (All default to 0/false for older saves that never turned or flipped tiles.)
@@ -413,10 +463,18 @@ function buildDesignLevel(design) {
     }
 
     addDesignTile(t.id, t.x - offX, t.y - offY, t.angle || 0, t.flipX || false, t.flipY || false, path,
-      (typeof t.z === "number") ? t.z : null);
+      (typeof t.z === "number") ? t.z : null, t.anim === false);
   }
 
-  return { width: (maxX - offX) + TILE_SIZE, height: (maxY - offY) + TILE_SIZE };
+  // Hand back the patch of world the camera is allowed to roam. The bottom is
+  // always the screen bottom; the top dips ABOVE the screen only when the level
+  // is taller than one screen (so tall towers still scroll up into view).
+  return {
+    left:   0,
+    right:  (maxX - offX) + TILE_SIZE,   // a one-tile margin past the rightmost tile
+    top:    Math.min(0, minY - offY),    // negative = there's level above the first screen
+    bottom: FRAME_H,                     // the lowest tile sits on the bottom of the screen
+  };
 }
 
 
@@ -490,15 +548,18 @@ const LEVEL_MAP = [
   "####   ########     ####    ###   ###### ",
 ];
 
-// How big is the whole level, in pixels? (the camera uses this). We fill these
-// in below — they're different for the built-in map vs. a designed level.
-let LEVEL_WIDTH, LEVEL_HEIGHT;
+// The patch of world the camera may roam (in pixels). LEFT/TOP can be negative;
+// BOTTOM is the bottom of the screen. We fill these in below — they're worked
+// out differently for the built-in map vs. a level you designed.
+let WORLD_LEFT, WORLD_RIGHT, WORLD_TOP, WORLD_BOTTOM;
 
 if (DESIGN) {
   // ---- Build the level YOU made in the level designer ----
-  const size = buildDesignLevel(DESIGN);
-  LEVEL_WIDTH = size.width;
-  LEVEL_HEIGHT = size.height;
+  const bounds = buildDesignLevel(DESIGN);
+  WORLD_LEFT   = bounds.left;
+  WORLD_RIGHT  = bounds.right;
+  WORLD_TOP    = bounds.top;
+  WORLD_BOTTOM = bounds.bottom;
 } else {
   // ---- Build the built-in level from the letter-map above ----
   addLevel(LEVEL_MAP, {
@@ -534,8 +595,10 @@ if (DESIGN) {
     },
   });
 
-  LEVEL_WIDTH  = LEVEL_MAP[0].length * TILE_SIZE;
-  LEVEL_HEIGHT = LEVEL_MAP.length    * TILE_SIZE;
+  WORLD_LEFT   = 0;
+  WORLD_TOP    = 0;
+  WORLD_RIGHT  = LEVEL_MAP[0].length * TILE_SIZE;
+  WORLD_BOTTOM = LEVEL_MAP.length    * TILE_SIZE;
 
   // A few clouds — pure decoration to make the sky look alive.
   add([ sprite("cloud"), pos(300, 90) ]);
@@ -595,13 +658,35 @@ onUpdate(() => {
 
 
 // ----------------------------------------------------------------------------
-//  ANIMATION  —  swap to the "jump" picture while in the air
+//  ANIMATION  —  jump pose in the air, a WALK cycle while running, else standing
 // ----------------------------------------------------------------------------
+//  Does this hero have a walk cycle? The new pack's characters do (palette.js
+//  lists their walk frames under window.ANIM with player:true); the classic
+//  p1/p2/p3 don't, so they just stand and jump exactly like before.
+const heroAnim = window.ANIM[player.baseName];
+player.walkFrames = (heroAnim && heroAnim.player) ? heroAnim.frames : null;
+const heroWalkStep = 1 / ((heroAnim && heroAnim.fps) || 10);
+let heroWalkAcc = 0, heroWalkIdx = 0;
+
 player.onUpdate(() => {
-  if (player.isGrounded()) {
-    player.use(sprite(player.baseName));  // feet on the ground -> normal picture
+  if (!player.isGrounded()) {
+    player.use(sprite(player.jumpName));    // in the air -> jumping picture
+    return;
+  }
+  // On the ground: flick through the walk pictures while you're actually moving,
+  // otherwise show the calm standing picture.
+  const moving = isKeyDown("left") || isKeyDown("right") ||
+                 isKeyDown("a") || isKeyDown("d") ||
+                 touchInput.left || touchInput.right;
+  if (player.walkFrames && moving) {
+    heroWalkAcc += dt();
+    if (heroWalkAcc >= heroWalkStep) {
+      heroWalkAcc = 0;
+      heroWalkIdx = (heroWalkIdx + 1) % player.walkFrames.length;
+    }
+    player.use(sprite(player.walkFrames[heroWalkIdx]));
   } else {
-    player.use(sprite(player.jumpName));  // in the air -> jumping picture
+    player.use(sprite(player.baseName));    // feet on the ground, standing still
   }
 });
 
@@ -735,7 +820,7 @@ makeSwitch("button");
 // ----------------------------------------------------------------------------
 //  FALLING OFF  —  if the player drops below the level, send them back
 // ----------------------------------------------------------------------------
-const FALL_LIMIT = LEVEL_HEIGHT + 200; // a bit below the lowest tile
+const FALL_LIMIT = WORLD_BOTTOM + 200; // a bit below the lowest tile
 
 player.onUpdate(() => {
   if (player.pos.y > FALL_LIMIT) {
@@ -756,13 +841,21 @@ player.onUpdate(() => {
   const halfW = width() / 2;
   const halfH = height() / 2;
 
-  const camX = LEVEL_WIDTH  > width()
-    ? clamp(player.pos.x, halfW, LEVEL_WIDTH  - halfW)
-    : LEVEL_WIDTH  / 2;
+  const worldW = WORLD_RIGHT  - WORLD_LEFT;
+  const worldH = WORLD_BOTTOM - WORLD_TOP;
 
-  const camY = LEVEL_HEIGHT > height()
-    ? clamp(player.pos.y, halfH, LEVEL_HEIGHT - halfH)
-    : LEVEL_HEIGHT / 2;
+  // Sideways: follow the player if the level is wider than the screen; otherwise
+  // just sit so the left edge of the level lines up with the left of the screen.
+  const camX = worldW > width()
+    ? clamp(player.pos.x, WORLD_LEFT + halfW, WORLD_RIGHT - halfW)
+    : WORLD_LEFT + halfW;
+
+  // Up/down: follow the player if the level is taller than one screen; otherwise
+  // sit so the BOTTOM of the level rests on the bottom of the screen (sky fills
+  // the space above). This is what stops short levels floating in the middle.
+  const camY = worldH > height()
+    ? clamp(player.pos.y, WORLD_TOP + halfH, WORLD_BOTTOM - halfH)
+    : WORLD_BOTTOM - halfH;
 
   setCamPos(camX, camY);
 });

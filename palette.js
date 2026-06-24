@@ -239,6 +239,94 @@ for (const pack of ALL_PACKS) {
   }
 }
 
+
+// ----------------------------------------------------------------------------
+//  ANIMATIONS  —  the sprites that come ALIVE (flick through a few pictures)
+// ----------------------------------------------------------------------------
+//  Some Kenney sprites ship as SEVERAL pictures that, flicked through in order,
+//  make a tiny movie: a slime waddles, a flag waves, a coin spins, a torch
+//  flickers, a hero walks. This is the ONE place that lists — per art pack —
+//  which placed sprite plays which frames, and how fast.
+//
+//  We write each as:   placedId: [ [frame names…], framesPerSecond, isPlayer? ]
+//    • placedId   = the still picture you drop in the editor (the resting look).
+//    • frame names= the bare picture names it cycles through (the placed one can
+//                   be one of them, or not — whatever loops nicest).
+//    • fps        = how many frames to show each second (bigger = faster).
+//    • isPlayer   = heroes are special: their frames are a WALK cycle that only
+//                   plays while they actually move, so the GAME drives them from
+//                   the keys. They're not looped like scenery and can't be
+//                   switched off in the editor.
+//
+//  From this we build window.ANIM[placedId] = { frames:[full ids…], fps, player }
+//  and auto-register any frame picture that isn't already a known sprite (just
+//  like COMPANION does), so the loader can always find it. The game (main.js)
+//  and the editor's live preview both read window.ANIM — nobody hand-writes
+//  filenames, so teaching a new pack to animate is just adding lines here.
+const ANIMATIONS = {
+  // The "New Platformer" / Standard pack — the one we build with now.
+  newplat: {
+    // — enemies: waddle / flap / swim / spin —
+    slime_normal_rest:    [["slime_normal_walk_a", "slime_normal_walk_b"], 5],
+    slime_fire_rest:      [["slime_fire_walk_a", "slime_fire_walk_b"], 5],
+    slime_spike_rest:     [["slime_spike_walk_a", "slime_spike_walk_b"], 5],
+    slime_block_rest:     [["slime_block_walk_a", "slime_block_walk_b"], 5],
+    snail_walk_a:         [["snail_walk_a", "snail_walk_b"], 3],
+    fly_a:                [["fly_a", "fly_b"], 8],
+    bee_a:                [["bee_a", "bee_b"], 10],
+    ladybug_walk_a:       [["ladybug_walk_a", "ladybug_walk_b"], 6],
+    mouse_walk_a:         [["mouse_walk_a", "mouse_walk_b"], 8],
+    frog_idle:            [["frog_idle", "frog_jump"], 2],
+    worm_normal_move_a:   [["worm_normal_move_a", "worm_normal_move_b"], 4],
+    worm_ring_move_a:     [["worm_ring_move_a", "worm_ring_move_b"], 4],
+    fish_blue_swim_a:     [["fish_blue_swim_a", "fish_blue_swim_b"], 5],
+    fish_yellow_swim_a:   [["fish_yellow_swim_a", "fish_yellow_swim_b"], 5],
+    fish_purple_rest:     [["fish_purple_up", "fish_purple_down"], 3],
+    barnacle_attack_rest: [["barnacle_attack_rest", "barnacle_attack_a", "barnacle_attack_b"], 4],
+    saw_a:                [["saw_a", "saw_b"], 12],
+    // — items & props: spin / wave / flicker —
+    coin_gold:            [["coin_gold", "coin_gold_side"], 6],
+    coin_silver:          [["coin_silver", "coin_silver_side"], 6],
+    coin_bronze:          [["coin_bronze", "coin_bronze_side"], 6],
+    flag_green_a:         [["flag_green_a", "flag_green_b"], 4],
+    flag_blue_a:          [["flag_blue_a", "flag_blue_b"], 4],
+    flag_red_a:           [["flag_red_a", "flag_red_b"], 4],
+    flag_yellow_a:        [["flag_yellow_a", "flag_yellow_b"], 4],
+    torch_on_a:           [["torch_on_a", "torch_on_b"], 6],
+    // — the heroes: a WALK cycle that plays only while they move (player:true) —
+    character_beige_front:  [["character_beige_walk_a", "character_beige_walk_b"], 10, true],
+    character_green_front:  [["character_green_walk_a", "character_green_walk_b"], 10, true],
+    character_pink_front:   [["character_pink_walk_a", "character_pink_walk_b"], 10, true],
+    character_purple_front: [["character_purple_walk_a", "character_purple_walk_b"], 10, true],
+    character_yellow_front: [["character_yellow_walk_a", "character_yellow_walk_b"], 10, true],
+  },
+  // (The Classic and Candy packs don't ship animation frames, so they have no
+  //  entry here — their sprites simply stay still, exactly as before.)
+};
+
+window.ANIM = {};
+for (const pack of ALL_PACKS) {
+  const defs = ANIMATIONS[pack.id];
+  if (!defs) continue;
+  for (const [placed, [frames, fps, isPlayer]] of Object.entries(defs)) {
+    const placedId = NAME_TO_ID[pack.id][placed];
+    if (!placedId || !window.ASSET_INFO[placedId]) continue;   // pack lacks this sprite — skip
+    const base = window.ASSET_INFO[placedId];
+    const frameIds = frames.map((f) => fullId(pack, f));
+    // A frame picture might be an "extra look" that isn't a placeable tile (so
+    // it's not in the pack's categories). Register it now, borrowing the placed
+    // tile's folder/size, so spritePath() + the loader can find it.
+    for (const fid of frameIds) {
+      if (!window.ASSET_INFO[fid]) {
+        const name = fid.includes(":") ? fid.split(":")[1] : fid;
+        window.ASSET_INFO[fid] = { pack: pack.id, name, folder: base.folder, w: base.w, h: base.h, root: base.root, bg: false, char: !!base.char };
+      }
+    }
+    window.ANIM[placedId] = { frames: frameIds, fps: fps || 6, player: !!isPlayer };
+  }
+}
+
+
 // A coin picture to "pop" out of a "?" block, matched to the block's own pack so
 // it looks right (a Standard coin for a Standard block, etc.). Returns a coin id
 // or null if the pack has no coin art.
@@ -269,6 +357,64 @@ window.PACKS = ALL_PACKS.map((pack) => ({
 
 // Back-compat: some older code reads window.PALETTE.categories (the classic pack).
 window.PALETTE = { categories: window.PACKS[0].categories };
+
+
+// ----------------------------------------------------------------------------
+//  FAVES  —  your OWN, cross-pack palette of starred sprites
+// ----------------------------------------------------------------------------
+//  Each pack ships a built-in "favourites" shortlist (above). THIS is different:
+//  it's a personal list YOU build by tapping the little ☆ star on any sprite, in
+//  ANY pack or category. They all gather together in the editor's "★ Faves" tab,
+//  so your most-used blocks — whichever pack they came from — are one tap away.
+//
+//  It's saved in THIS browser only (localStorage), separate from your levels, so
+//  curating your palette never touches anyone else's. The game doesn't use this
+//  at all; only the editor reads it (and only when you open the drawer).
+const FAVES_KEY = "coinquest-faves";
+
+window.Faves = (() => {
+  let ids = null;   // lazy-loaded array of full sprite ids, kept in the order you starred them
+
+  // First-ever run: start you off with one pack's built-in favourites — the
+  // first pack you can build with — so the Faves tab isn't empty but also isn't
+  // a giant every-pack dump. From here you grow it yourself with the ☆ stars.
+  function seed() {
+    const start = window.PACKS.find((p) => !p.hidden);
+    return start && start.favourites ? start.favourites.slice() : [];
+  }
+
+  function read() {
+    if (ids) return ids;
+    try {
+      const raw = localStorage.getItem(FAVES_KEY);
+      if (raw === null) { ids = seed(); write(); }    // nothing saved yet → seed it
+      else ids = JSON.parse(raw);
+      if (!Array.isArray(ids)) ids = [];
+    } catch (e) { ids = []; }
+    // Quietly drop any ids whose sprite no longer exists (e.g. a pack was removed).
+    ids = ids.filter((id) => window.ASSET_INFO[id]);
+    return ids;
+  }
+
+  function write() {
+    try { localStorage.setItem(FAVES_KEY, JSON.stringify(ids)); } catch (e) { /* full / private mode */ }
+  }
+
+  return {
+    // A copy of your faved ids (so callers can't mutate the real list by accident).
+    list() { return read().slice(); },
+    // Is this sprite in your Faves?
+    has(id) { return read().includes(id); },
+    // Add it if it's missing, remove it if it's there. Returns true if it's now a fave.
+    toggle(id) {
+      read();
+      const i = ids.indexOf(id);
+      if (i >= 0) ids.splice(i, 1); else ids.push(id);
+      write();
+      return ids.includes(id);
+    },
+  };
+})();
 
 
 // ----------------------------------------------------------------------------

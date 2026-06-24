@@ -121,6 +121,7 @@
        thumbnails spilled over and "crashed into" the row below. Pinning the row
        height with grid-auto-rows (above) and filling it is rock-solid instead. */
     #thumbs .thumb {
+      position: relative;            /* so the corner ☆ star can sit on top */
       min-height: 0;                 /* cancel the shared button min-height */
       height: 100%;                  /* fill the fixed-height grid row */
       background: #eef2f7;           /* near-white, so dark block outlines pop */
@@ -132,6 +133,36 @@
       padding: 4px;
     }
     #thumbs .thumb:hover { background: #ffffff; }   /* brighten on hover */
+
+    /* The little favourite STAR badge in the top-right of every thumbnail.
+       Outline (☆, dim grey) means "not a fave"; filled (★, gold) means "in your
+       Faves palette". It's a real clickable target that toggles the fave without
+       arming the block (editor.js stops the tap from reaching the thumb). */
+    #thumbs .fave-star {
+      position: absolute;
+      top: -2px;
+      right: 1px;
+      font-size: 17px;
+      line-height: 1;
+      padding: 2px 3px;              /* a roomier tap target for fingers */
+      color: #aab4c2;               /* dim outline star */
+      cursor: pointer;
+      text-shadow: 0 1px 2px rgba(255, 255, 255, 0.9);  /* stay readable over art */
+      z-index: 2;
+    }
+    #thumbs .fave-star.on { color: #f6b915; }           /* gold once it's a fave */
+    #thumbs .fave-star:hover { transform: scale(1.25); }
+
+    /* The "no faves yet" message, shown in place of the grid on an empty Faves tab. */
+    #thumbs .fave-empty {
+      grid-column: 1 / -1;           /* span all three columns */
+      align-self: start;
+      padding: 16px 10px;
+      color: #475569;
+      font-size: 14px;
+      line-height: 1.5;
+      text-align: center;
+    }
     #thumbs .thumb img {
       max-width: 100%;
       max-height: 100%;
@@ -165,6 +196,39 @@
       :root { --drawer-w: 280px; --tap: 50px; --thumb: 84px; }
       #drawer button { font-size: 15px; }
     }
+
+    /* ---- The right-click pop-up menu for an animated tile (built by editor.js) ---- */
+    #ctxMenu {
+      position: fixed;
+      display: none;                 /* editor.js shows it on right-click */
+      z-index: 40;                   /* above the canvas, below the phone-steer */
+      min-width: 190px;
+      background: var(--panel-2);
+      border: 1px solid rgba(0, 0, 0, 0.5);
+      border-radius: 8px;
+      padding: 5px;
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    #ctxMenu .ctx-item {
+      display: block;
+      width: 100%;
+      box-sizing: border-box;
+      text-align: left;
+      min-height: var(--tap);
+      border: 0;
+      border-radius: 6px;
+      background: transparent;
+      color: var(--ink);
+      font-size: 14px;
+      font-family: inherit;
+      cursor: pointer;
+      padding: 8px 12px;
+    }
+    #ctxMenu .ctx-item:hover { background: var(--btn-hot); }
+    #ctxMenu .ctx-item.danger { color: #ff9a9a; }
+    #ctxMenu .ctx-item.danger:hover { background: #963737; color: #fff; }
 
     /* ---- The "best on a big screen" soft-steer, shown only on a phone ---- */
     #phoneSteer {
@@ -215,6 +279,9 @@
       <button id="clearBtn">🗑 Clear all</button>
     </div>
   </div>
+
+  <!-- The right-click pop-up menu (filled with buttons + positioned by editor.js). -->
+  <div id="ctxMenu"></div>
 
   <!-- Shown ONLY on a small phone screen: a friendly "use a bigger screen" nudge
        you can wave away with "Open anyway". It never hard-blocks you. -->
