@@ -11,6 +11,16 @@ see what happened — especially when a merge conflict was found and *not* merge
 
 Newest entries are at the top.
 
+## 2026-06-24 — ✅ Synced fine
+- Saved Zac's work first: 5 files committed (ccea759) — fixed screen size to a
+  steady 1280×720 with letterbox (so nothing gets cut off on big monitors), made
+  the floor sit on the bottom of the screen on load (camera now bottom-anchors
+  short levels instead of centring them), and added a 1280×720 "screen box" guide
+  in the editor (yellow outline + green ground line + label). Touched: main.js,
+  editor.js, levels.js, plus pre-existing edits in editor.html + palette.js.
+- Checked GitHub: Zac was 1 ahead, 0 behind (no diverging — Simon hadn't pushed).
+- Pushed everything to GitHub (fb665ac..ccea759). No merge needed, no conflicts.
+
 ## 2026-06-23 01:32 — ✅ Synced fine (on a feature branch, not main)
 - Working branch: `claude/editor-ui-architecture-qxb2sz` (5 commits ahead of `main`).
 - Saved work first: 1 commit (81ea7e5) — candy art pack (98 new files: the
